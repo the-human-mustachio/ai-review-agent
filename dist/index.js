@@ -25650,7 +25650,7 @@ const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
 const { execSync } = __nccwpck_require__(5317);
 const { loadPrompt, renderPrompt } = __nccwpck_require__(5155);
-const { runReview } = __nccwpck_require__(8161);
+const { runReview, runAgenticOpencode } = __nccwpck_require__(8161);
 
 const CONTEXT_LINES_AROUND_HUNK = 20;
 const BINARY_EXTENSIONS = new Set([
@@ -25677,6 +25677,8 @@ const DEFAULT_EXCLUDES = [
 
 const DEFAULT_OPENCODE_VERSION = '1.3.2';
 
+const AGENT_FILES = ['orchestrator.md', 'security.md', 'architecture.md', 'testing.md', 'performance.md'];
+
 /**
  * Run the full review pipeline. Platform-agnostic.
  *
@@ -25686,6 +25688,7 @@ const DEFAULT_OPENCODE_VERSION = '1.3.2';
  * @param {string} opts.prAuthor
  * @param {string} opts.prBody
  * @param {number|string} opts.prNumber
+ * @param {string} [opts.mode='quick'] - Review mode: 'quick' or 'agentic'
  * @param {string} [opts.promptPath] - Custom prompt template path
  * @param {string} [opts.rulesPath] - Path to rules file or directory
  * @param {string} [opts.excludePatterns] - Comma-separated exclude globs
@@ -25703,6 +25706,7 @@ async function runFullReview(opts) {
     prAuthor,
     prBody = '',
     prNumber,
+    mode = 'quick',
     promptPath,
     rulesPath,
     excludePatterns = '',
@@ -25743,25 +25747,39 @@ async function runFullReview(opts) {
     return { approve: true, summary: 'No diff found.', issues: [], recommendation: '' };
   }
 
-  // Context + chunks
+  // Context + file diffs
   const fileDiffs = splitDiffByFile(fullDiff);
   const context = gatherHunkContext(fileDiffs);
-  const chunks = buildChunks(fileDiffs, maxDiffSize);
-  log(`Split into ${chunks.length} chunk(s) for review.`);
 
   // Install OpenCode
   log(`Installing OpenCode v${opencodeVersion}...`);
   exec(`npm install -g opencode-ai@${opencodeVersion}`);
 
-  // Sanitize
+  // Sanitize PR metadata
   const safePrTitle = sanitize(prTitle);
   const safePrAuthor = sanitize(prAuthor);
   const safePrBody = sanitize(prBody);
 
-  // Review chunks in parallel
+  const shared = { fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
+
+  if (mode === 'agentic') {
+    log('Running in agentic mode (multi-agent review)...');
+    return runAgenticReview({ ...shared, promptPath });
+  }
+
+  log(`Running in quick mode (single-pass review)...`);
+  return runQuickReview({ ...shared, promptPath, maxDiffSize });
+}
+
+// ─── Quick Mode ──────────────────────────────────────────────────────────────
+
+function runQuickReview({ fileDiffs, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, maxDiffSize, log }) {
+  const chunks = buildChunks(fileDiffs, maxDiffSize);
+  log(`Split into ${chunks.length} chunk(s) for review.`);
+
   const template = loadPrompt(promptPath);
 
-  const chunkResults = await Promise.all(chunks.map((chunk, i) => {
+  const chunkResults = chunks.map((chunk, i) => {
     const chunkLabel = chunks.length > 1 ? ` (chunk ${i + 1}/${chunks.length})` : '';
     log(`Running AI review${chunkLabel}...`);
 
@@ -25783,9 +25801,82 @@ async function runFullReview(opts) {
     });
 
     return runReview(prompt, `${prNumber}-${i}`, { log });
-  }));
+  });
 
-  // Merge
+  return mergeResults(chunkResults);
+}
+
+// ─── Agentic Mode ────────────────────────────────────────────────────────────
+
+function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }) {
+  // Ensure agent files exist in CWD
+  provisionAgentFiles(log);
+
+  const agenticTemplatePath = promptPath || __nccwpck_require__.ab + "agentic-kickoff.txt";
+  const template = loadPrompt(agenticTemplatePath);
+
+  const fileList = buildFileList(fileDiffs);
+
+  const contextSection = context.length > 0
+    ? `File context (surrounding code for reference):\n${context.map(c => `--- ${c.file} ---\n${c.content}`).join('\n\n')}`
+    : '';
+
+  const rulesSection = rules
+    ? `Review rules and standards (apply these when evaluating the code):\n${rules}`
+    : '';
+
+  const prompt = renderPrompt(template, {
+    PR_TITLE: safePrTitle,
+    PR_AUTHOR: safePrAuthor,
+    PR_BODY: safePrBody,
+    RULES: rulesSection,
+    CONTEXT: contextSection,
+    DIFF: fullDiff,
+    FILE_LIST: fileList,
+  });
+
+  log('Running orchestrator agent...');
+  const review = runAgenticOpencode(prompt, prNumber, { log });
+
+  return {
+    approve: review.approve,
+    summary: review.summary,
+    issues: deduplicateIssues(review.issues || []),
+    recommendation: review.recommendation || '',
+  };
+}
+
+function buildFileList(fileDiffs) {
+  return fileDiffs.map(({ file, diff }) => {
+    const added = (diff.match(/^\+[^+]/gm) || []).length;
+    const removed = (diff.match(/^-[^-]/gm) || []).length;
+    return `- ${file} (+${added}/-${removed})`;
+  }).join('\n');
+}
+
+function provisionAgentFiles(log) {
+  const targetDir = __nccwpck_require__.ab + "agent";
+  const sourceDir = __nccwpck_require__.ab + "agent";
+
+  if (fs.existsSync(__nccwpck_require__.ab + "orchestrator.md")) return;
+
+  log('Provisioning agent files...');
+  fs.mkdirSync(__nccwpck_require__.ab + "agent", { recursive: true });
+
+  for (const file of AGENT_FILES) {
+    const target = __nccwpck_require__.ab + "agent/" + file;
+    if (!fs.existsSync(target)) {
+      const source = __nccwpck_require__.ab + "agent/" + file;
+      if (fs.existsSync(source)) {
+        fs.copyFileSync(source, target);
+      }
+    }
+  }
+}
+
+// ─── Result Merging ──────────────────────────────────────────────────────────
+
+function mergeResults(chunkResults) {
   let shouldApprove = true;
   const allIssues = [];
   const allSummaries = [];
@@ -26117,8 +26208,7 @@ const DEFAULT_REVIEW = {
 };
 
 /**
- * Run OpenCode and return the parsed review JSON.
- * Writes prompt to a temp file and pipes via stdin to avoid CLI arg size limits.
+ * Run OpenCode in quick mode (no agent) and return the parsed review JSON.
  */
 function runReview(prompt, id, { log = console.log } = {}) {
   try {
@@ -26242,7 +26332,35 @@ function isValidReview(obj) {
   );
 }
 
-module.exports = { runReview, parseReviewOutput };
+/**
+ * Run OpenCode with the orchestrator agent for agentic review mode.
+ */
+function runAgenticOpencode(prompt, id, { log = console.log } = {}) {
+  try {
+    let stderr = '';
+    let stdout;
+    try {
+      stdout = execFileSync(
+        'opencode',
+        ['run', '--agent', 'orchestrator', '--format', 'json', prompt],
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+    } catch (execErr) {
+      stderr = execErr.stderr || '';
+      stdout = execErr.stdout || '';
+      log(`OpenCode orchestrator stderr: ${stderr}`);
+      if (!stdout) {
+        log(`OpenCode orchestrator exited with code ${execErr.status}, no stdout`);
+        return DEFAULT_REVIEW;
+      }
+    }
+
+    log(`OpenCode orchestrator stdout (first 500 chars): ${stdout.slice(0, 500)}`);
+    return parseReviewOutput(stdout, { log });
+  } finally {}
+}
+
+module.exports = { runReview, runAgenticOpencode, parseReviewOutput };
 
 
 /***/ }),
@@ -32517,6 +32635,7 @@ async function run() {
       prAuthor: prMeta.prAuthor,
       prBody: prMeta.prBody,
       prNumber: prMeta.prNumber,
+      mode: core.getInput('mode') || 'quick',
       promptPath: core.getInput('prompt') || undefined,
       rulesPath: core.getInput('rules') || undefined,
       excludePatterns: core.getInput('exclude-patterns'),
