@@ -25855,21 +25855,43 @@ function buildFileList(fileDiffs) {
 }
 
 function provisionAgentFiles(log) {
-  const targetDir = __nccwpck_require__.ab + "agent";
-  const sourceDir = __nccwpck_require__.ab + "agent";
+  const packageDir = path.join(__dirname, '..', '..');
+  const targetOpencode = __nccwpck_require__.ab + ".opencode";
+  const targetAgentDir = __nccwpck_require__.ab + "agent";
+  const sourceAgentDir = __nccwpck_require__.ab + "agent";
 
-  if (fs.existsSync(__nccwpck_require__.ab + "orchestrator.md")) return;
+  // Provision agent .md files
+  if (!fs.existsSync(__nccwpck_require__.ab + "orchestrator.md")) {
+    log('Provisioning agent files...');
+    fs.mkdirSync(__nccwpck_require__.ab + "agent", { recursive: true });
 
-  log('Provisioning agent files...');
-  fs.mkdirSync(__nccwpck_require__.ab + "agent", { recursive: true });
-
-  for (const file of AGENT_FILES) {
-    const target = __nccwpck_require__.ab + "agent/" + file;
-    if (!fs.existsSync(target)) {
-      const source = __nccwpck_require__.ab + "agent/" + file;
-      if (fs.existsSync(source)) {
-        fs.copyFileSync(source, target);
+    for (const file of AGENT_FILES) {
+      const target = __nccwpck_require__.ab + "agent/" + file;
+      if (!fs.existsSync(target)) {
+        const source = __nccwpck_require__.ab + "agent/" + file;
+        if (fs.existsSync(source)) {
+          fs.copyFileSync(source, target);
+        }
       }
+    }
+  }
+
+  // Ensure opencode config allows task tool for agentic mode
+  const targetConfig = __nccwpck_require__.ab + "opencode.json";
+  if (fs.existsSync(__nccwpck_require__.ab + "opencode.json")) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(targetConfig, 'utf-8'));
+      if (existing.permission && existing.permission.task !== 'allow') {
+        log('Overriding task permission to "allow" for agentic mode...');
+        existing.permission.task = 'allow';
+        fs.writeFileSync(targetConfig, JSON.stringify(existing, null, 2), 'utf-8');
+      }
+    } catch { /* ignore parse errors */ }
+  } else {
+    const sourceConfig = path.join(packageDir, '.opencode', 'opencode.json');
+    if (fs.existsSync(sourceConfig)) {
+      log('Provisioning default opencode config...');
+      fs.copyFileSync(sourceConfig, targetConfig);
     }
   }
 }
