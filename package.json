@@ -1,0 +1,43 @@
+{
+  "name": "@mustachip/ai-review-agent",
+  "version": "0.1.0",
+  "description": "AI-powered PR code review agent — CLI and CI integration for GitHub and Bitbucket",
+  "main": "src/core/engine.js",
+  "bin": {
+    "ai-review-agent": "bin/cli.js"
+  },
+  "scripts": {
+    "build": "ncc build src/index.js -o dist --source-map --license licenses.txt",
+    "dev": "node bin/cli.js"
+  },
+  "keywords": [
+    "ai",
+    "code-review",
+    "pull-request",
+    "github-actions",
+    "bitbucket",
+    "cli",
+    "opencode"
+  ],
+  "author": "mustachip",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/the-human-mustachio/ai-review-agent"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "prompts/",
+    "action.yml",
+    "dist/"
+  ],
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "@octokit/rest": "^21.1.1"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.3"
+  }
+}
