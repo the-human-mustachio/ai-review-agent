@@ -186,6 +186,9 @@ function deduplicateIssues(issues) {
 }
 
 function shouldFailForThreshold(review, threshold) {
+  if (!review.approve && (!review.issues || review.issues.length === 0)) {
+    return 'Review did not approve but found no issues — possible parse failure.';
+  }
   const issues = review.issues || [];
   const severities = ['info', 'warning', 'blocking'];
   const thresholdIndex = severities.indexOf(threshold);
