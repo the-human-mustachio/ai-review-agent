@@ -1,5 +1,5 @@
 {
-  "name": "@mustachip/ai-review-agent",
+  "name": "@_mustachio/ai-review-agent",
   "version": "0.1.0",
   "description": "AI-powered PR code review agent — CLI and CI integration for GitHub and Bitbucket",
   "main": "src/core/engine.js",
@@ -19,7 +19,7 @@
     "cli",
     "opencode"
   ],
-  "author": "mustachip",
+  "author": "_mustachio",
   "license": "MIT",
   "repository": {
     "type": "git",

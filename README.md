@@ -1,4 +1,4 @@
-# @mustachip/ai-review-agent
+# @_mustachio/ai-review-agent
 
 AI-powered pull request code review agent. Works as a CLI tool, npm library, or GitHub Action. Supports GitHub and Bitbucket.
 
@@ -20,7 +20,7 @@ AI-powered pull request code review agent. Works as a CLI tool, npm library, or 
 ### npx (any CI or local)
 
 ```bash
-npx @mustachip/ai-review-agent \
+npx @_mustachio/ai-review-agent \
   --platform github \
   --token $GH_TOKEN \
   --rules ./docs/standards/
@@ -63,7 +63,7 @@ jobs:
 When published, replace `uses: ./packages/ai-review-agent` with:
 
 ```yaml
-      - uses: mustachip/ai-review-agent@v1
+      - uses: the-human-mustachio/ai-review-agent@v1
 ```
 
 ### Bitbucket Pipelines
@@ -75,7 +75,7 @@ pipelines:
       - step:
           name: AI Code Review
           script:
-            - npx @mustachip/ai-review-agent --rules ./docs/standards/ --severity-threshold blocking
+            - npx @_mustachio/ai-review-agent --rules ./docs/standards/ --severity-threshold blocking
           # BB_TOKEN must be set as a secured repository variable
           # with pullrequest:write and repository:write scopes
 ```
@@ -84,7 +84,7 @@ pipelines:
 
 ```bash
 # Just get the review as JSON (no comments posted)
-npx @mustachip/ai-review-agent \
+npx @_mustachio/ai-review-agent \
   --output-only \
   --base-branch main \
   --rules ./standards/
@@ -193,7 +193,7 @@ The review JSON (from `--output-only` or the internal pipeline):
 ## Library Usage
 
 ```js
-const { runFullReview } = require('@mustachip/ai-review-agent');
+const { runFullReview } = require('@_mustachio/ai-review-agent');
 
 const review = await runFullReview({
   baseBranch: 'main',
