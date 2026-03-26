@@ -5,6 +5,10 @@ branding:
   color: 'purple'
 
 inputs:
+  mode:
+    description: 'Review mode: quick (fast single-pass) or agentic (multi-agent deep review)'
+    required: false
+    default: 'quick'
   api-key:
     description: 'API key for the AI provider (e.g. Anthropic, OpenAI). Optional if already set in environment.'
     required: false

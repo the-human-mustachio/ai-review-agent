@@ -4,9 +4,11 @@ AI-powered pull request code review agent. Works as a CLI tool, npm library, or 
 
 ## Features
 
+- **Two review modes** — fast single-pass (quick) or multi-agent deep review (agentic)
+- **Agentic review** — orchestrator dynamically spawns specialized sub-agents (security, architecture, testing, performance) based on what changed
 - **Inline comments** on specific lines of the PR diff
 - **Hunk-aware context** — reads code surrounding changed lines, not just the diff
-- **Diff chunking** — splits large PRs into parallel review chunks
+- **Diff chunking** — splits large PRs into parallel review chunks (quick mode)
 - **Custom rules** — point at a file or directory of coding standards (SOLID, CLEAN, etc.)
 - **Configurable prompt** — bring your own review prompt template
 - **Multi-platform** — GitHub Actions and Bitbucket Pipelines
@@ -20,9 +22,17 @@ AI-powered pull request code review agent. Works as a CLI tool, npm library, or 
 ### npx (any CI or local)
 
 ```bash
+# Quick mode (default) — fast single-pass review
 npx @_mustachio/ai-review-agent \
   --platform github \
   --token $GH_TOKEN \
+  --rules ./docs/standards/
+
+# Agentic mode — multi-agent deep review
+npx @_mustachio/ai-review-agent \
+  --platform github \
+  --token $GH_TOKEN \
+  --mode agentic \
   --rules ./docs/standards/
 ```
 
@@ -53,17 +63,12 @@ jobs:
         with:
           node-version: '24'
 
-      - uses: ./packages/ai-review-agent
+      - uses: the-human-mustachio/ai-review-agent@v1
         with:
+          mode: 'agentic'
           severity-threshold: 'blocking'
           rules: docs/standards/standards.md
           opencode-config: ${{ github.workspace }}/.github/opencode.json
-```
-
-When published, replace `uses: ./packages/ai-review-agent` with:
-
-```yaml
-      - uses: the-human-mustachio/ai-review-agent@v1
 ```
 
 ### Bitbucket Pipelines
@@ -88,7 +93,43 @@ npx @_mustachio/ai-review-agent \
   --output-only \
   --base-branch main \
   --rules ./standards/
+
+# Agentic mode locally
+npx @_mustachio/ai-review-agent \
+  --output-only \
+  --base-branch main \
+  --mode agentic \
+  --rules ./standards/
 ```
+
+## Review Modes
+
+### Quick Mode (default)
+
+Fast, single-pass review. The diff is split into chunks and each chunk is reviewed in a single LLM call. Best for small-to-medium PRs or when speed matters.
+
+```bash
+--mode quick
+```
+
+### Agentic Mode
+
+An orchestrator agent analyzes the PR and dynamically spawns specialized sub-agents based on what changed. Sub-agents can use tools to read files, search the codebase, and explore beyond the diff context.
+
+```bash
+--mode agentic
+```
+
+**Specialized sub-agents:**
+
+| Agent | Triggers On | Focus |
+|-------|------------|-------|
+| Security | Auth, crypto, secrets, deps, user input, network I/O | Injection, XSS, CSRF, leaked credentials, OWASP |
+| Architecture | New files, moved files, import changes, 3+ directories | Separation of concerns, patterns, API design |
+| Testing | Source changes without test updates, test modifications | Coverage, edge cases, test quality, broken tests |
+| Performance | DB queries, loops, I/O, caching, algorithm changes | N+1 queries, blocking I/O, memory leaks, complexity |
+
+The orchestrator decides which agents are relevant — not all agents run on every PR. A docs-only change may skip all sub-agents, while a new API endpoint might trigger security + architecture + testing.
 
 ## CLI Options
 
@@ -105,12 +146,13 @@ PR METADATA (auto-detected in CI):
   --base-branch <branch>    Base branch (default: main)
 
 REVIEW OPTIONS:
+  --mode <mode>             Review mode: quick (single-pass) or agentic (multi-agent). Default: quick
   --prompt <path>           Custom prompt template
   --rules <path>            Rules file or directory
   --exclude <patterns>      Comma-separated exclude globs
   --max-diff-size <n>       Max diff chars per chunk (default: 100000)
   --severity-threshold <s>  Fail threshold: blocking, warning, info
-  --opencode-version <v>    Pinned opencode-ai version (default: 0.2.21)
+  --opencode-version <v>    Pinned opencode-ai version (default: 1.3.2)
   --opencode-config <path>  OpenCode config file
   --api-key <key>           AI provider API key
   --post-review <bool>      Post approve/request-changes (default: true)
@@ -124,6 +166,7 @@ OUTPUT:
 
 | Input | Description | Default |
 |-------|-------------|---------|
+| `mode` | Review mode: `quick` or `agentic` | `quick` |
 | `api-key` | AI provider API key (optional if set in env) | |
 | `severity-threshold` | Fail threshold: `blocking`, `warning`, `info` | `blocking` |
 | `prompt` | Path to custom prompt template | built-in |
@@ -132,7 +175,7 @@ OUTPUT:
 | `exclude-patterns` | Comma-separated exclude globs | |
 | `opencode-config` | Path to OpenCode config file | |
 | `rules` | Path to rules file or directory | |
-| `opencode-version` | Pinned opencode-ai version | `0.2.21` |
+| `opencode-version` | Pinned opencode-ai version | `1.3.2` |
 
 ## Custom Rules
 
@@ -156,7 +199,7 @@ Example rules directory:
   testing.md
 ```
 
-Each file's content is injected into the review prompt as evaluation criteria.
+Each file's content is injected into the review prompt as evaluation criteria. Rules work in both quick and agentic modes — in agentic mode, the orchestrator passes rules to each sub-agent.
 
 ## Output Format
 
@@ -179,6 +222,8 @@ The review JSON (from `--output-only` or the internal pipeline):
 }
 ```
 
+Both review modes produce the same output format.
+
 ## Platform Differences
 
 | Capability | GitHub | Bitbucket |
@@ -195,12 +240,24 @@ The review JSON (from `--output-only` or the internal pipeline):
 ```js
 const { runFullReview } = require('@_mustachio/ai-review-agent');
 
+// Quick mode (default)
 const review = await runFullReview({
   baseBranch: 'main',
   prTitle: 'Add feature X',
   prAuthor: 'dev',
   prBody: 'Description here',
   prNumber: 42,
+  rulesPath: './standards.md',
+});
+
+// Agentic mode
+const deepReview = await runFullReview({
+  baseBranch: 'main',
+  prTitle: 'Add feature X',
+  prAuthor: 'dev',
+  prBody: 'Description here',
+  prNumber: 42,
+  mode: 'agentic',
   rulesPath: './standards.md',
 });
 

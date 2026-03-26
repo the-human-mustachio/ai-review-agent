@@ -8,8 +8,7 @@ const DEFAULT_REVIEW = {
 };
 
 /**
- * Run OpenCode and return the parsed review JSON.
- * Writes prompt to a temp file and pipes via stdin to avoid CLI arg size limits.
+ * Run OpenCode in quick mode (no agent) and return the parsed review JSON.
  */
 function runReview(prompt, id, { log = console.log } = {}) {
   try {
@@ -133,4 +132,32 @@ function isValidReview(obj) {
   );
 }
 
-module.exports = { runReview, parseReviewOutput };
+/**
+ * Run OpenCode with the orchestrator agent for agentic review mode.
+ */
+function runAgenticOpencode(prompt, id, { log = console.log } = {}) {
+  try {
+    let stderr = '';
+    let stdout;
+    try {
+      stdout = execFileSync(
+        'opencode',
+        ['run', '--agent', 'orchestrator', '--format', 'json', prompt],
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+    } catch (execErr) {
+      stderr = execErr.stderr || '';
+      stdout = execErr.stdout || '';
+      log(`OpenCode orchestrator stderr: ${stderr}`);
+      if (!stdout) {
+        log(`OpenCode orchestrator exited with code ${execErr.status}, no stdout`);
+        return DEFAULT_REVIEW;
+      }
+    }
+
+    log(`OpenCode orchestrator stdout (first 500 chars): ${stdout.slice(0, 500)}`);
+    return parseReviewOutput(stdout, { log });
+  } finally {}
+}
+
+module.exports = { runReview, runAgenticOpencode, parseReviewOutput };

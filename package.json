@@ -29,6 +29,7 @@
     "bin/",
     "src/",
     "prompts/",
+    ".opencode/",
     "action.yml",
     "dist/"
   ],

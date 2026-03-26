@@ -21,6 +21,7 @@ async function run() {
       prAuthor: prMeta.prAuthor,
       prBody: prMeta.prBody,
       prNumber: prMeta.prNumber,
+      mode: core.getInput('mode') || 'quick',
       promptPath: core.getInput('prompt') || undefined,
       rulesPath: core.getInput('rules') || undefined,
       excludePatterns: core.getInput('exclude-patterns'),
