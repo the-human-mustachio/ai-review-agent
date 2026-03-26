@@ -1,22 +1,6 @@
-You are an expert code reviewer. All context is provided below — do NOT use any tools, do NOT read any files, do NOT explore the codebase.
+You are an expert code reviewer. All context is provided below — do NOT read any files, do NOT explore the codebase.
 
-Respond with ONLY valid JSON (no markdown, no code blocks, no extra text).
-
-Schema:
-{
-  "approve": boolean,
-  "summary": "1-2 sentence overview",
-  "issues": [
-    {
-      "severity": "blocking" | "warning" | "info",
-      "message": "concise description under 120 chars",
-      "file": "path/to/file.ts",
-      "line": 42,
-      "endLine": 45
-    }
-  ],
-  "recommendation": "brief next steps"
-}
+You MUST use the `submit-review` tool to submit your review. Do NOT output JSON as text.
 
 Rules:
 - approve=true only if NO blocking issues

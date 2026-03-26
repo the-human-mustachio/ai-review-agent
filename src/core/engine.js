@@ -30,6 +30,7 @@ const DEFAULT_EXCLUDES = [
 const DEFAULT_OPENCODE_VERSION = '1.3.2';
 
 const AGENT_FILES = ['orchestrator.md', 'security.md', 'architecture.md', 'testing.md', 'performance.md'];
+const TOOL_FILES = ['submit-review.ts', 'submit-summary.ts'];
 
 /**
  * Run the full review pipeline. Platform-agnostic.
@@ -113,6 +114,9 @@ async function runFullReview(opts) {
   const safePrAuthor = sanitize(prAuthor);
   const safePrBody = sanitize(prBody);
 
+  // Provision opencode files (agents, tools, config)
+  provisionOpenCodeFiles(log, mode);
+
   // Generate PR summary
   let prSummary = '';
   if (shouldGenerateSummary) {
@@ -172,8 +176,6 @@ function runQuickReview({ fileDiffs, context, rules, safePrTitle, safePrAuthor, 
 // ─── Agentic Mode ────────────────────────────────────────────────────────────
 
 function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }) {
-  // Ensure agent files exist in CWD
-  provisionAgentFiles(log);
 
   const agenticTemplatePath = promptPath || path.join(__dirname, '..', '..', 'prompts', 'agentic-kickoff.txt');
   const template = loadPrompt(agenticTemplatePath);
@@ -236,14 +238,14 @@ function buildFileList(fileDiffs) {
   }).join('\n');
 }
 
-function provisionAgentFiles(log) {
+function provisionOpenCodeFiles(log, mode) {
   const packageDir = path.join(__dirname, '..', '..');
   const targetOpencode = path.join(process.cwd(), '.opencode');
   const targetAgentDir = path.join(targetOpencode, 'agent');
   const sourceAgentDir = path.join(packageDir, '.opencode', 'agent');
 
-  // Provision agent .md files
-  if (!fs.existsSync(path.join(targetAgentDir, 'orchestrator.md'))) {
+  // Provision agent .md files (only needed for agentic mode)
+  if (mode === 'agentic' && !fs.existsSync(path.join(targetAgentDir, 'orchestrator.md'))) {
     log('Provisioning agent files...');
     fs.mkdirSync(targetAgentDir, { recursive: true });
 
@@ -258,9 +260,9 @@ function provisionAgentFiles(log) {
     }
   }
 
-  // Ensure opencode config allows task tool for agentic mode
+  // Ensure opencode config allows task tool (only for agentic mode)
   const targetConfig = path.join(targetOpencode, 'opencode.json');
-  if (fs.existsSync(targetConfig)) {
+  if (mode === 'agentic' && fs.existsSync(targetConfig)) {
     try {
       const existing = JSON.parse(fs.readFileSync(targetConfig, 'utf-8'));
       if (existing.permission && existing.permission.task !== 'allow') {
@@ -269,11 +271,29 @@ function provisionAgentFiles(log) {
         fs.writeFileSync(targetConfig, JSON.stringify(existing, null, 2), 'utf-8');
       }
     } catch { /* ignore parse errors */ }
-  } else {
+  } else if (mode === 'agentic' && !fs.existsSync(targetConfig)) {
     const sourceConfig = path.join(packageDir, '.opencode', 'opencode.json');
     if (fs.existsSync(sourceConfig)) {
       log('Provisioning default opencode config...');
       fs.copyFileSync(sourceConfig, targetConfig);
+    }
+  }
+
+  // Provision custom tool files
+  const targetToolDir = path.join(targetOpencode, 'tools');
+  const sourceToolDir = path.join(packageDir, '.opencode', 'tools');
+  if (!fs.existsSync(path.join(targetToolDir, 'submit-review.ts'))) {
+    log('Provisioning custom tool files...');
+    fs.mkdirSync(targetToolDir, { recursive: true });
+
+    for (const file of TOOL_FILES) {
+      const target = path.join(targetToolDir, file);
+      if (!fs.existsSync(target)) {
+        const source = path.join(sourceToolDir, file);
+        if (fs.existsSync(source)) {
+          fs.copyFileSync(source, target);
+        }
+      }
     }
   }
 }

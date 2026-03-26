@@ -38,24 +38,7 @@ When spawning each sub-agent via the `task` tool, include in the prompt:
 
 ## Output
 
-After collecting all sub-agent findings, produce ONLY valid JSON (no markdown, no code blocks, no extra text):
-
-```
-{
-  "approve": boolean,
-  "summary": "1-3 sentence overview of the PR quality",
-  "issues": [
-    {
-      "severity": "blocking" | "warning" | "info",
-      "message": "concise description under 120 chars",
-      "file": "path/to/file",
-      "line": 42,
-      "endLine": 45
-    }
-  ],
-  "recommendation": "brief next steps"
-}
-```
+After collecting all sub-agent findings, you MUST use the `submit-review` tool to submit the final review. Do NOT output JSON as text.
 
 Rules:
 - approve=true ONLY if there are NO blocking issues across all sub-agents
