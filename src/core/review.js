@@ -19,11 +19,24 @@ function runReview(prompt, id, { log = console.log } = {}) {
   fs.writeFileSync(tmpFile, prompt, 'utf-8');
 
   try {
-    const stdout = execSync(
-      `cat "${tmpFile}" | opencode run --format json --title "PR Review #${id}"`,
-      { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
-    );
+    let stderr = '';
+    let stdout;
+    try {
+      stdout = execSync(
+        `cat "${tmpFile}" | opencode run --format json --title "PR Review #${id}"`,
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+    } catch (execErr) {
+      stderr = execErr.stderr || '';
+      stdout = execErr.stdout || '';
+      log(`OpenCode stderr: ${stderr}`);
+      if (!stdout) {
+        log(`OpenCode exited with code ${execErr.status}, no stdout`);
+        return DEFAULT_REVIEW;
+      }
+    }
 
+    log(`OpenCode stdout (first 500 chars): ${stdout.slice(0, 500)}`);
     return parseReviewOutput(stdout, { log });
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
