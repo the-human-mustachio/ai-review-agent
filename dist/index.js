@@ -25650,7 +25650,7 @@ const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
 const { execSync } = __nccwpck_require__(5317);
 const { loadPrompt, renderPrompt } = __nccwpck_require__(5155);
-const { runReview, runAgenticOpencode } = __nccwpck_require__(8161);
+const { runReview, runAgenticOpencode, runSummary } = __nccwpck_require__(8161);
 
 const CONTEXT_LINES_AROUND_HUNK = 20;
 const BINARY_EXTENSIONS = new Set([
@@ -25707,6 +25707,7 @@ async function runFullReview(opts) {
     prBody = '',
     prNumber,
     mode = 'quick',
+    summary: shouldGenerateSummary = true,
     promptPath,
     rulesPath,
     excludePatterns = '',
@@ -25760,15 +25761,25 @@ async function runFullReview(opts) {
   const safePrAuthor = sanitize(prAuthor);
   const safePrBody = sanitize(prBody);
 
-  const shared = { fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
-
-  if (mode === 'agentic') {
-    log('Running in agentic mode (multi-agent review)...');
-    return runAgenticReview({ ...shared, promptPath });
+  // Generate PR summary
+  let prSummary = '';
+  if (shouldGenerateSummary) {
+    prSummary = generateSummary({ fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log });
   }
 
-  log(`Running in quick mode (single-pass review)...`);
-  return runQuickReview({ ...shared, promptPath, maxDiffSize });
+  const shared = { fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
+
+  let review;
+  if (mode === 'agentic') {
+    log('Running in agentic mode (multi-agent review)...');
+    review = runAgenticReview({ ...shared, promptPath });
+  } else {
+    log(`Running in quick mode (single-pass review)...`);
+    review = runQuickReview({ ...shared, promptPath, maxDiffSize });
+  }
+
+  review.prSummary = prSummary;
+  return review;
 }
 
 // ─── Quick Mode ──────────────────────────────────────────────────────────────
@@ -25844,6 +25855,25 @@ function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, sa
     issues: deduplicateIssues(review.issues || []),
     recommendation: review.recommendation || '',
   };
+}
+
+// ─── PR Summary ──────────────────────────────────────────────────────────────
+
+function generateSummary({ fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log }) {
+  log('Generating PR summary...');
+  const summaryTemplatePath = __nccwpck_require__.ab + "summary.txt";
+  const template = loadPrompt(__nccwpck_require__.ab + "summary.txt");
+  const fileList = buildFileList(fileDiffs);
+
+  const prompt = renderPrompt(template, {
+    PR_TITLE: safePrTitle,
+    PR_AUTHOR: safePrAuthor,
+    PR_BODY: safePrBody,
+    FILE_LIST: fileList,
+    DIFF: fullDiff,
+  });
+
+  return runSummary(prompt, `summary-${prNumber}`, { log });
 }
 
 function buildFileList(fileDiffs) {
@@ -26123,8 +26153,14 @@ function loadRules(rulesPath, log = console.log) {
 const SEVERITY_ICONS = { blocking: '🚫', warning: '⚠️', info: '💡' };
 
 function formatComment(review) {
+  let body = '';
+
+  if (review.prSummary) {
+    body += `<details>\n<summary>📋 PR Summary</summary>\n\n${review.prSummary}\n\n</details>\n\n`;
+  }
+
   const verdict = review.approve ? '✅ **Approved**' : '❌ **Changes Requested**';
-  let body = `## AI Code Review — ${verdict}\n\n${review.summary}`;
+  body += `## AI Code Review — ${verdict}\n\n${review.summary}`;
 
   const nonInlineIssues = (review.issues || []).filter((i) => !i.file || !i.line);
   if (nonInlineIssues.length > 0) {
@@ -26396,7 +26432,55 @@ function runAgenticOpencode(prompt, id, { log = console.log } = {}) {
   } finally {}
 }
 
-module.exports = { runReview, runAgenticOpencode, parseReviewOutput };
+/**
+ * Run OpenCode to generate a PR summary (markdown output, not JSON).
+ */
+function runSummary(prompt, id, { log = console.log } = {}) {
+  try {
+    let stderr = '';
+    let stdout;
+    try {
+      stdout = execFileSync(
+        'opencode',
+        ['run', '--format', 'json', prompt],
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+    } catch (execErr) {
+      stderr = execErr.stderr || '';
+      stdout = execErr.stdout || '';
+      log(`OpenCode summary stderr: ${stderr}`);
+      if (!stdout) {
+        log(`OpenCode summary exited with code ${execErr.status}, no stdout`);
+        return '';
+      }
+    }
+
+    return parseSummaryOutput(stdout);
+  } finally {}
+}
+
+/**
+ * Parse OpenCode JSON output to extract plain text (for summary generation).
+ */
+function parseSummaryOutput(output) {
+  const lines = output.split('\n').filter(Boolean);
+  const textParts = [];
+
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === 'text' && parsed.part?.text) {
+        textParts.push(parsed.part.text);
+      }
+    } catch {
+      // Not valid JSON line, skip
+    }
+  }
+
+  return textParts.join('').trim();
+}
+
+module.exports = { runReview, runAgenticOpencode, runSummary, parseReviewOutput };
 
 
 /***/ }),
@@ -32672,6 +32756,7 @@ async function run() {
       prBody: prMeta.prBody,
       prNumber: prMeta.prNumber,
       mode: core.getInput('mode') || 'quick',
+      summary: core.getInput('summary') !== 'false',
       promptPath: core.getInput('prompt') || undefined,
       rulesPath: core.getInput('rules') || undefined,
       excludePatterns: core.getInput('exclude-patterns'),
@@ -32687,6 +32772,7 @@ async function run() {
     core.setOutput('summary', review.summary);
     core.setOutput('issues-count', String(review.issues.length));
     core.setOutput('blocking-count', String(countBySeverity(review.issues, 'blocking')));
+    core.setOutput('pr-summary', review.prSummary || '');
 
     // Post review
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
