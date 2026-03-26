@@ -45,12 +45,18 @@ inputs:
     description: 'Pinned version of opencode-ai to install (default: 1.3.2)'
     required: false
     default: '1.3.2'
+  summary:
+    description: 'Generate a structured PR summary (default: true)'
+    required: false
+    default: 'true'
 
 outputs:
   approved:
     description: 'Whether the review approved the PR (true/false)'
   summary:
     description: 'Review summary text'
+  pr-summary:
+    description: 'Structured PR summary markdown'
   issues-count:
     description: 'Total number of issues found'
   blocking-count:

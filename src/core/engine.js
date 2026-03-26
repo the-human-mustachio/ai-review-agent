@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { loadPrompt, renderPrompt } = require('./prompt');
-const { runReview, runAgenticOpencode } = require('./review');
+const { runReview, runAgenticOpencode, runSummary } = require('./review');
 
 const CONTEXT_LINES_AROUND_HUNK = 20;
 const BINARY_EXTENSIONS = new Set([
@@ -59,6 +59,7 @@ async function runFullReview(opts) {
     prBody = '',
     prNumber,
     mode = 'quick',
+    summary: shouldGenerateSummary = true,
     promptPath,
     rulesPath,
     excludePatterns = '',
@@ -112,15 +113,25 @@ async function runFullReview(opts) {
   const safePrAuthor = sanitize(prAuthor);
   const safePrBody = sanitize(prBody);
 
-  const shared = { fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
-
-  if (mode === 'agentic') {
-    log('Running in agentic mode (multi-agent review)...');
-    return runAgenticReview({ ...shared, promptPath });
+  // Generate PR summary
+  let prSummary = '';
+  if (shouldGenerateSummary) {
+    prSummary = generateSummary({ fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log });
   }
 
-  log(`Running in quick mode (single-pass review)...`);
-  return runQuickReview({ ...shared, promptPath, maxDiffSize });
+  const shared = { fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
+
+  let review;
+  if (mode === 'agentic') {
+    log('Running in agentic mode (multi-agent review)...');
+    review = runAgenticReview({ ...shared, promptPath });
+  } else {
+    log(`Running in quick mode (single-pass review)...`);
+    review = runQuickReview({ ...shared, promptPath, maxDiffSize });
+  }
+
+  review.prSummary = prSummary;
+  return review;
 }
 
 // ─── Quick Mode ──────────────────────────────────────────────────────────────
@@ -196,6 +207,25 @@ function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, sa
     issues: deduplicateIssues(review.issues || []),
     recommendation: review.recommendation || '',
   };
+}
+
+// ─── PR Summary ──────────────────────────────────────────────────────────────
+
+function generateSummary({ fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log }) {
+  log('Generating PR summary...');
+  const summaryTemplatePath = path.join(__dirname, '..', '..', 'prompts', 'summary.txt');
+  const template = loadPrompt(summaryTemplatePath);
+  const fileList = buildFileList(fileDiffs);
+
+  const prompt = renderPrompt(template, {
+    PR_TITLE: safePrTitle,
+    PR_AUTHOR: safePrAuthor,
+    PR_BODY: safePrBody,
+    FILE_LIST: fileList,
+    DIFF: fullDiff,
+  });
+
+  return runSummary(prompt, `summary-${prNumber}`, { log });
 }
 
 function buildFileList(fileDiffs) {
@@ -475,8 +505,14 @@ function loadRules(rulesPath, log = console.log) {
 const SEVERITY_ICONS = { blocking: '🚫', warning: '⚠️', info: '💡' };
 
 function formatComment(review) {
+  let body = '';
+
+  if (review.prSummary) {
+    body += `<details>\n<summary>📋 PR Summary</summary>\n\n${review.prSummary}\n\n</details>\n\n`;
+  }
+
   const verdict = review.approve ? '✅ **Approved**' : '❌ **Changes Requested**';
-  let body = `## AI Code Review — ${verdict}\n\n${review.summary}`;
+  body += `## AI Code Review — ${verdict}\n\n${review.summary}`;
 
   const nonInlineIssues = (review.issues || []).filter((i) => !i.file || !i.line);
   if (nonInlineIssues.length > 0) {

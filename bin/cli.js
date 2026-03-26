@@ -60,6 +60,7 @@ async function main() {
     prBody: prMeta.prBody,
     prNumber: prMeta.prNumber,
     mode: args.mode || 'quick',
+    summary: args.summary !== 'false',
     promptPath: args.prompt || undefined,
     rulesPath: args.rules || undefined,
     excludePatterns: args.exclude || '',
@@ -141,6 +142,7 @@ PR METADATA (auto-detected in CI, required for --output-only):
 
 REVIEW OPTIONS:
   --mode <mode>           Review mode: quick (single-pass) or agentic (multi-agent). Default: quick
+  --summary <bool>        Generate PR summary (default: true)
   --prompt <path>         Path to custom prompt template
   --rules <path>          Path to rules file or directory
   --exclude <patterns>    Comma-separated glob patterns to exclude

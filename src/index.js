@@ -22,6 +22,7 @@ async function run() {
       prBody: prMeta.prBody,
       prNumber: prMeta.prNumber,
       mode: core.getInput('mode') || 'quick',
+      summary: core.getInput('summary') !== 'false',
       promptPath: core.getInput('prompt') || undefined,
       rulesPath: core.getInput('rules') || undefined,
       excludePatterns: core.getInput('exclude-patterns'),
@@ -37,6 +38,7 @@ async function run() {
     core.setOutput('summary', review.summary);
     core.setOutput('issues-count', String(review.issues.length));
     core.setOutput('blocking-count', String(countBySeverity(review.issues, 'blocking')));
+    core.setOutput('pr-summary', review.prSummary || '');
 
     // Post review
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;

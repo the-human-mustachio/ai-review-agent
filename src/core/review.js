@@ -174,4 +174,52 @@ function runAgenticOpencode(prompt, id, { log = console.log } = {}) {
   } finally {}
 }
 
-module.exports = { runReview, runAgenticOpencode, parseReviewOutput };
+/**
+ * Run OpenCode to generate a PR summary (markdown output, not JSON).
+ */
+function runSummary(prompt, id, { log = console.log } = {}) {
+  try {
+    let stderr = '';
+    let stdout;
+    try {
+      stdout = execFileSync(
+        'opencode',
+        ['run', '--format', 'json', prompt],
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+    } catch (execErr) {
+      stderr = execErr.stderr || '';
+      stdout = execErr.stdout || '';
+      log(`OpenCode summary stderr: ${stderr}`);
+      if (!stdout) {
+        log(`OpenCode summary exited with code ${execErr.status}, no stdout`);
+        return '';
+      }
+    }
+
+    return parseSummaryOutput(stdout);
+  } finally {}
+}
+
+/**
+ * Parse OpenCode JSON output to extract plain text (for summary generation).
+ */
+function parseSummaryOutput(output) {
+  const lines = output.split('\n').filter(Boolean);
+  const textParts = [];
+
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === 'text' && parsed.part?.text) {
+        textParts.push(parsed.part.text);
+      }
+    } catch {
+      // Not valid JSON line, skip
+    }
+  }
+
+  return textParts.join('').trim();
+}
+
+module.exports = { runReview, runAgenticOpencode, runSummary, parseReviewOutput };
