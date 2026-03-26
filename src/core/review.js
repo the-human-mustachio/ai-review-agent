@@ -1,7 +1,4 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const DEFAULT_REVIEW = {
   approve: false,
@@ -15,16 +12,14 @@ const DEFAULT_REVIEW = {
  * Writes prompt to a temp file and pipes via stdin to avoid CLI arg size limits.
  */
 function runReview(prompt, id, { log = console.log } = {}) {
-  const tmpFile = path.join(os.tmpdir(), `ai-review-prompt-${id}.txt`);
-  fs.writeFileSync(tmpFile, prompt, 'utf-8');
-
   try {
     let stderr = '';
     let stdout;
     try {
-      stdout = execSync(
-        `opencode run --format json --title "PR Review #${id}" "$(cat "${tmpFile}")"`,
-        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], shell: '/bin/bash' }
+      stdout = execFileSync(
+        'opencode',
+        ['run', '--format', 'json', prompt],
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
       );
     } catch (execErr) {
       stderr = execErr.stderr || '';
@@ -38,9 +33,7 @@ function runReview(prompt, id, { log = console.log } = {}) {
 
     log(`OpenCode stdout (first 500 chars): ${stdout.slice(0, 500)}`);
     return parseReviewOutput(stdout, { log });
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
-  }
+  } finally {}
 }
 
 /**
