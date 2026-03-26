@@ -26256,6 +26256,9 @@ function parseReviewOutput(output, { log = console.log } = {}) {
   }
 
   log(`OpenCode event types: ${[...eventTypes].join(', ')} (${lines.length} lines, ${textParts.length} text parts)`);
+  if (textParts.length === 0) {
+    log(`Raw output lines:\n${lines.map((l, i) => `  [${i}] ${l.slice(0, 300)}`).join('\n')}`);
+  }
 
   // Try combining all text parts first — agentic mode often splits the response across events
   if (textParts.length > 1) {
