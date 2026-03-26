@@ -207,21 +207,43 @@ function buildFileList(fileDiffs) {
 }
 
 function provisionAgentFiles(log) {
-  const targetDir = path.join(process.cwd(), '.opencode', 'agent');
-  const sourceDir = path.join(__dirname, '..', '..', '.opencode', 'agent');
+  const packageDir = path.join(__dirname, '..', '..');
+  const targetOpencode = path.join(process.cwd(), '.opencode');
+  const targetAgentDir = path.join(targetOpencode, 'agent');
+  const sourceAgentDir = path.join(packageDir, '.opencode', 'agent');
 
-  if (fs.existsSync(path.join(targetDir, 'orchestrator.md'))) return;
+  // Provision agent .md files
+  if (!fs.existsSync(path.join(targetAgentDir, 'orchestrator.md'))) {
+    log('Provisioning agent files...');
+    fs.mkdirSync(targetAgentDir, { recursive: true });
 
-  log('Provisioning agent files...');
-  fs.mkdirSync(targetDir, { recursive: true });
-
-  for (const file of AGENT_FILES) {
-    const target = path.join(targetDir, file);
-    if (!fs.existsSync(target)) {
-      const source = path.join(sourceDir, file);
-      if (fs.existsSync(source)) {
-        fs.copyFileSync(source, target);
+    for (const file of AGENT_FILES) {
+      const target = path.join(targetAgentDir, file);
+      if (!fs.existsSync(target)) {
+        const source = path.join(sourceAgentDir, file);
+        if (fs.existsSync(source)) {
+          fs.copyFileSync(source, target);
+        }
       }
+    }
+  }
+
+  // Ensure opencode config allows task tool for agentic mode
+  const targetConfig = path.join(targetOpencode, 'opencode.json');
+  if (fs.existsSync(targetConfig)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(targetConfig, 'utf-8'));
+      if (existing.permission && existing.permission.task !== 'allow') {
+        log('Overriding task permission to "allow" for agentic mode...');
+        existing.permission.task = 'allow';
+        fs.writeFileSync(targetConfig, JSON.stringify(existing, null, 2), 'utf-8');
+      }
+    } catch { /* ignore parse errors */ }
+  } else {
+    const sourceConfig = path.join(packageDir, '.opencode', 'opencode.json');
+    if (fs.existsSync(sourceConfig)) {
+      log('Provisioning default opencode config...');
+      fs.copyFileSync(sourceConfig, targetConfig);
     }
   }
 }
