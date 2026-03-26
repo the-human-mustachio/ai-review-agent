@@ -25675,7 +25675,7 @@ const DEFAULT_EXCLUDES = [
   '**/*.snap',
 ];
 
-const DEFAULT_OPENCODE_VERSION = '0.2.21';
+const DEFAULT_OPENCODE_VERSION = '1.3.2';
 
 /**
  * Run the full review pipeline. Platform-agnostic.
