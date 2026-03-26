@@ -41,10 +41,12 @@ function runReview(prompt, id, { log = console.log } = {}) {
 function parseReviewOutput(output, { log = console.log } = {}) {
   const lines = output.split('\n').filter(Boolean);
   const textParts = [];
+  const eventTypes = new Set();
 
   for (const line of lines) {
     try {
       const parsed = JSON.parse(line);
+      if (parsed.type) eventTypes.add(parsed.type);
       if (parsed.type === 'text' && parsed.part?.text) {
         textParts.push(parsed.part.text);
       }
@@ -53,24 +55,33 @@ function parseReviewOutput(output, { log = console.log } = {}) {
     }
   }
 
-  for (const text of textParts) {
-    const review = tryParseReview(text);
-    if (review) return review;
-  }
+  log(`OpenCode event types: ${[...eventTypes].join(', ')} (${lines.length} lines, ${textParts.length} text parts)`);
 
+  // Try combining all text parts first — agentic mode often splits the response across events
   if (textParts.length > 1) {
     const combined = textParts.join('');
     const review = tryParseReview(combined);
     if (review) return review;
   }
 
+  // Search backwards — the final text part is most likely to contain the review JSON
+  for (let i = textParts.length - 1; i >= 0; i--) {
+    const review = tryParseReview(textParts[i]);
+    if (review) return review;
+  }
+
   log('Warning: Could not extract review JSON from OpenCode output');
-  log(`Raw text parts: ${JSON.stringify(textParts)}`);
+  log(`Raw text parts (${textParts.length}): ${JSON.stringify(textParts.map(t => t.slice(0, 200)))}`);
   return DEFAULT_REVIEW;
 }
 
 function tryParseReview(text) {
-  const trimmed = text.trim();
+  // Strip markdown code fences if present
+  let trimmed = text.trim();
+  const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch) {
+    trimmed = fenceMatch[1].trim();
+  }
 
   try {
     const obj = JSON.parse(trimmed);
