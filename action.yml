@@ -38,9 +38,9 @@ inputs:
     required: false
     default: ''
   opencode-version:
-    description: 'Pinned version of opencode-ai to install (default: 0.2.21)'
+    description: 'Pinned version of opencode-ai to install (default: 1.3.2)'
     required: false
-    default: '0.2.21'
+    default: '1.3.2'
 
 outputs:
   approved:
