@@ -25678,6 +25678,7 @@ const DEFAULT_EXCLUDES = [
 const DEFAULT_OPENCODE_VERSION = '1.3.2';
 
 const AGENT_FILES = ['orchestrator.md', 'security.md', 'architecture.md', 'testing.md', 'performance.md'];
+const TOOL_FILES = ['submit-review.ts', 'submit-summary.ts'];
 
 /**
  * Run the full review pipeline. Platform-agnostic.
@@ -25761,6 +25762,9 @@ async function runFullReview(opts) {
   const safePrAuthor = sanitize(prAuthor);
   const safePrBody = sanitize(prBody);
 
+  // Provision opencode files (agents, tools, config)
+  provisionOpenCodeFiles(log, mode);
+
   // Generate PR summary
   let prSummary = '';
   if (shouldGenerateSummary) {
@@ -25820,8 +25824,6 @@ function runQuickReview({ fileDiffs, context, rules, safePrTitle, safePrAuthor, 
 // ─── Agentic Mode ────────────────────────────────────────────────────────────
 
 function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }) {
-  // Ensure agent files exist in CWD
-  provisionAgentFiles(log);
 
   const agenticTemplatePath = promptPath || __nccwpck_require__.ab + "agentic-kickoff.txt";
   const template = loadPrompt(agenticTemplatePath);
@@ -25884,14 +25886,14 @@ function buildFileList(fileDiffs) {
   }).join('\n');
 }
 
-function provisionAgentFiles(log) {
+function provisionOpenCodeFiles(log, mode) {
   const packageDir = path.join(__dirname, '..', '..');
   const targetOpencode = __nccwpck_require__.ab + ".opencode";
   const targetAgentDir = __nccwpck_require__.ab + "agent";
   const sourceAgentDir = __nccwpck_require__.ab + "agent";
 
-  // Provision agent .md files
-  if (!fs.existsSync(__nccwpck_require__.ab + "orchestrator.md")) {
+  // Provision agent .md files (only needed for agentic mode)
+  if (mode === 'agentic' && !fs.existsSync(__nccwpck_require__.ab + "orchestrator.md")) {
     log('Provisioning agent files...');
     fs.mkdirSync(__nccwpck_require__.ab + "agent", { recursive: true });
 
@@ -25906,22 +25908,40 @@ function provisionAgentFiles(log) {
     }
   }
 
-  // Ensure opencode config allows task tool for agentic mode
+  // Ensure opencode config allows task tool (only for agentic mode)
   const targetConfig = __nccwpck_require__.ab + "opencode.json";
-  if (fs.existsSync(__nccwpck_require__.ab + "opencode.json")) {
+  if (mode === 'agentic' && fs.existsSync(__nccwpck_require__.ab + "opencode.json")) {
     try {
-      const existing = JSON.parse(fs.readFileSync(targetConfig, 'utf-8'));
+      const existing = JSON.parse(fs.readFileSync(__nccwpck_require__.ab + "opencode.json", 'utf-8'));
       if (existing.permission && existing.permission.task !== 'allow') {
         log('Overriding task permission to "allow" for agentic mode...');
         existing.permission.task = 'allow';
-        fs.writeFileSync(targetConfig, JSON.stringify(existing, null, 2), 'utf-8');
+        fs.writeFileSync(__nccwpck_require__.ab + "opencode.json", JSON.stringify(existing, null, 2), 'utf-8');
       }
     } catch { /* ignore parse errors */ }
-  } else {
-    const sourceConfig = path.join(packageDir, '.opencode', 'opencode.json');
-    if (fs.existsSync(sourceConfig)) {
+  } else if (mode === 'agentic' && !fs.existsSync(__nccwpck_require__.ab + "opencode.json")) {
+    const sourceConfig = __nccwpck_require__.ab + "opencode.json";
+    if (fs.existsSync(__nccwpck_require__.ab + "opencode.json")) {
       log('Provisioning default opencode config...');
       fs.copyFileSync(sourceConfig, targetConfig);
+    }
+  }
+
+  // Provision custom tool files
+  const targetToolDir = __nccwpck_require__.ab + "tools";
+  const sourceToolDir = __nccwpck_require__.ab + "tools";
+  if (!fs.existsSync(__nccwpck_require__.ab + "submit-review.ts")) {
+    log('Provisioning custom tool files...');
+    fs.mkdirSync(__nccwpck_require__.ab + "tools", { recursive: true });
+
+    for (const file of TOOL_FILES) {
+      const target = __nccwpck_require__.ab + "tools/" + file;
+      if (!fs.existsSync(target)) {
+        const source = __nccwpck_require__.ab + "tools/" + file;
+        if (fs.existsSync(source)) {
+          fs.copyFileSync(source, target);
+        }
+      }
     }
   }
 }
@@ -26269,35 +26289,58 @@ const DEFAULT_REVIEW = {
  * Run OpenCode in quick mode (no agent) and return the parsed review JSON.
  */
 function runReview(prompt, id, { log = console.log } = {}) {
-  try {
-    let stderr = '';
-    let stdout;
-    try {
-      stdout = execFileSync(
-        'opencode',
-        ['run', '--format', 'json', prompt],
-        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
-      );
-    } catch (execErr) {
-      stderr = execErr.stderr || '';
-      stdout = execErr.stdout || '';
-      log(`OpenCode stderr: ${stderr}`);
-      if (!stdout) {
-        log(`OpenCode exited with code ${execErr.status}, no stdout`);
-        return DEFAULT_REVIEW;
-      }
-    }
-
-    log(`OpenCode stdout (first 500 chars): ${stdout.slice(0, 500)}`);
-    return parseReviewOutput(stdout, { log });
-  } finally {}
+  const stdout = execOpenCode(['run', '--format', 'json', prompt], { log, label: 'review' });
+  if (!stdout) return DEFAULT_REVIEW;
+  return parseReviewOutput(stdout, { log });
 }
 
 /**
- * Parse OpenCode JSON output to extract the review object.
+ * Run OpenCode with the orchestrator agent for agentic review mode.
  */
-function parseReviewOutput(output, { log = console.log } = {}) {
+function runAgenticOpencode(prompt, id, { log = console.log } = {}) {
+  const stdout = execOpenCode(['run', '--agent', 'orchestrator', '--format', 'json', prompt], { log, label: 'orchestrator' });
+  if (!stdout) return DEFAULT_REVIEW;
+  return parseReviewOutput(stdout, { log });
+}
+
+/**
+ * Run OpenCode to generate a PR summary.
+ */
+function runSummary(prompt, id, { log = console.log } = {}) {
+  const stdout = execOpenCode(['run', '--format', 'json', prompt], { log, label: 'summary' });
+  if (!stdout) return '';
+  return parseSummaryOutput(stdout);
+}
+
+// ─── OpenCode Execution ─────────────────────────────────────────────────────
+
+function execOpenCode(args, { log, label }) {
+  try {
+    return execFileSync('opencode', args, {
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch (execErr) {
+    const stderr = execErr.stderr || '';
+    const stdout = execErr.stdout || '';
+    if (stderr) log(`OpenCode ${label} stderr: ${stderr}`);
+    if (!stdout) {
+      log(`OpenCode ${label} exited with code ${execErr.status}, no stdout`);
+      return null;
+    }
+    return stdout;
+  }
+}
+
+// ─── Output Parsing ─────────────────────────────────────────────────────────
+
+/**
+ * Parse OpenCode streaming JSON output into structured parts.
+ */
+function parseOpenCodeOutput(output) {
   const lines = output.split('\n').filter(Boolean);
+  const toolCalls = [];
   const textParts = [];
   const eventTypes = new Set();
 
@@ -26305,6 +26348,12 @@ function parseReviewOutput(output, { log = console.log } = {}) {
     try {
       const parsed = JSON.parse(line);
       if (parsed.type) eventTypes.add(parsed.type);
+      if (parsed.type === 'tool_use' && parsed.part) {
+        toolCalls.push({
+          tool: parsed.part.tool,
+          state: parsed.part.state,
+        });
+      }
       if (parsed.type === 'text' && parsed.part?.text) {
         textParts.push(parsed.part.text);
       }
@@ -26313,86 +26362,52 @@ function parseReviewOutput(output, { log = console.log } = {}) {
     }
   }
 
-  log(`OpenCode event types: ${[...eventTypes].join(', ')} (${lines.length} lines, ${textParts.length} text parts)`);
-  if (textParts.length === 0) {
-    log(`Raw output lines:\n${lines.map((l, i) => `  [${i}] ${l.slice(0, 300)}`).join('\n')}`);
+  return { toolCalls, textParts, eventTypes, lines };
+}
+
+/**
+ * Extract review from submit-review tool call.
+ */
+function parseReviewOutput(output, { log = console.log } = {}) {
+  const { toolCalls, eventTypes, lines } = parseOpenCodeOutput(output);
+
+  log(`OpenCode event types: ${[...eventTypes].join(', ')} (${lines.length} lines, ${toolCalls.length} tool calls)`);
+  if (toolCalls.length > 0) {
+    log(`Tool calls: ${toolCalls.map(c => c.tool).join(', ')}`);
   }
 
-  // Try combining all text parts first — agentic mode often splits the response across events
-  if (textParts.length > 1) {
-    const combined = textParts.join('');
-    const review = tryParseReview(combined);
-    if (review) return review;
+  for (const call of toolCalls) {
+    if (call.tool === 'submit-review' && call.state?.input) {
+      const input = call.state.input;
+      if (isValidReview(input)) {
+        log('Parsed review from submit-review tool call.');
+        return input;
+      }
+    }
   }
 
-  // Search backwards — the final text part is most likely to contain the review JSON
-  for (let i = textParts.length - 1; i >= 0; i--) {
-    const review = tryParseReview(textParts[i]);
-    if (review) return review;
-  }
-
-  log('Warning: Could not extract review JSON from OpenCode output');
-  log(`Raw text parts (${textParts.length}): ${JSON.stringify(textParts.map(t => t.slice(0, 200)))}`);
+  log('Warning: No submit-review tool call found in OpenCode output.');
+  log(`Raw output lines:\n${lines.map((l, i) => `  [${i}] ${l.slice(0, 300)}`).join('\n')}`);
   return DEFAULT_REVIEW;
 }
 
-function tryParseReview(text) {
-  // Strip markdown code fences if present
-  let trimmed = text.trim();
-  const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (fenceMatch) {
-    trimmed = fenceMatch[1].trim();
+/**
+ * Extract PR summary from submit-summary tool call.
+ */
+function parseSummaryOutput(output) {
+  const { toolCalls, textParts } = parseOpenCodeOutput(output);
+
+  for (const call of toolCalls) {
+    if (call.tool === 'submit-summary' && call.state?.input) {
+      const input = call.state.input;
+      if (input.overview) {
+        return `### Overview\n${input.overview}\n\n### Changes\n${input.changes}\n\n### Risk Areas\n${input.riskAreas}`;
+      }
+    }
   }
 
-  try {
-    const obj = JSON.parse(trimmed);
-    if (isValidReview(obj)) return obj;
-  } catch {}
-
-  const start = trimmed.indexOf('{');
-  if (start === -1) return null;
-
-  const jsonStr = trimmed.slice(start);
-
-  try {
-    const obj = JSON.parse(jsonStr);
-    if (isValidReview(obj)) return obj;
-  } catch {}
-
-  const repaired = repairTruncatedJson(jsonStr);
-  if (repaired) {
-    try {
-      const obj = JSON.parse(repaired);
-      if (isValidReview(obj)) return obj;
-    } catch {}
-  }
-
-  return null;
-}
-
-function repairTruncatedJson(json) {
-  let inString = false;
-  let escaped = false;
-  const stack = [];
-
-  for (let i = 0; i < json.length; i++) {
-    const ch = json[i];
-    if (escaped) { escaped = false; continue; }
-    if (ch === '\\' && inString) { escaped = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === '{') stack.push('}');
-    else if (ch === '[') stack.push(']');
-    else if (ch === '}' || ch === ']') stack.pop();
-  }
-
-  if (stack.length === 0) return null;
-
-  let repaired = json;
-  if (inString) repaired += '"';
-  while (stack.length > 0) repaired += stack.pop();
-
-  return repaired;
+  // Fallback: plain text (in case tool wasn't called)
+  return textParts.join('').trim();
 }
 
 function isValidReview(obj) {
@@ -26402,82 +26417,6 @@ function isValidReview(obj) {
     typeof obj.approve === 'boolean' &&
     typeof obj.summary === 'string'
   );
-}
-
-/**
- * Run OpenCode with the orchestrator agent for agentic review mode.
- */
-function runAgenticOpencode(prompt, id, { log = console.log } = {}) {
-  try {
-    let stderr = '';
-    let stdout;
-    try {
-      stdout = execFileSync(
-        'opencode',
-        ['run', '--agent', 'orchestrator', '--format', 'json', prompt],
-        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
-      );
-    } catch (execErr) {
-      stderr = execErr.stderr || '';
-      stdout = execErr.stdout || '';
-      log(`OpenCode orchestrator stderr: ${stderr}`);
-      if (!stdout) {
-        log(`OpenCode orchestrator exited with code ${execErr.status}, no stdout`);
-        return DEFAULT_REVIEW;
-      }
-    }
-
-    log(`OpenCode orchestrator stdout (first 500 chars): ${stdout.slice(0, 500)}`);
-    return parseReviewOutput(stdout, { log });
-  } finally {}
-}
-
-/**
- * Run OpenCode to generate a PR summary (markdown output, not JSON).
- */
-function runSummary(prompt, id, { log = console.log } = {}) {
-  try {
-    let stderr = '';
-    let stdout;
-    try {
-      stdout = execFileSync(
-        'opencode',
-        ['run', '--format', 'json', prompt],
-        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
-      );
-    } catch (execErr) {
-      stderr = execErr.stderr || '';
-      stdout = execErr.stdout || '';
-      log(`OpenCode summary stderr: ${stderr}`);
-      if (!stdout) {
-        log(`OpenCode summary exited with code ${execErr.status}, no stdout`);
-        return '';
-      }
-    }
-
-    return parseSummaryOutput(stdout);
-  } finally {}
-}
-
-/**
- * Parse OpenCode JSON output to extract plain text (for summary generation).
- */
-function parseSummaryOutput(output) {
-  const lines = output.split('\n').filter(Boolean);
-  const textParts = [];
-
-  for (const line of lines) {
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.type === 'text' && parsed.part?.text) {
-        textParts.push(parsed.part.text);
-      }
-    } catch {
-      // Not valid JSON line, skip
-    }
-  }
-
-  return textParts.join('').trim();
 }
 
 module.exports = { runReview, runAgenticOpencode, runSummary, parseReviewOutput };
