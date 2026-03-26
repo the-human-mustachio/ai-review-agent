@@ -26104,10 +26104,7 @@ module.exports = { loadPrompt, renderPrompt };
 /***/ 8161:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
-const fs = __nccwpck_require__(9896);
-const path = __nccwpck_require__(6928);
-const os = __nccwpck_require__(857);
-const { execSync } = __nccwpck_require__(5317);
+const { execFileSync } = __nccwpck_require__(5317);
 
 const DEFAULT_REVIEW = {
   approve: false,
@@ -26121,16 +26118,14 @@ const DEFAULT_REVIEW = {
  * Writes prompt to a temp file and pipes via stdin to avoid CLI arg size limits.
  */
 function runReview(prompt, id, { log = console.log } = {}) {
-  const tmpFile = path.join(os.tmpdir(), `ai-review-prompt-${id}.txt`);
-  fs.writeFileSync(tmpFile, prompt, 'utf-8');
-
   try {
     let stderr = '';
     let stdout;
     try {
-      stdout = execSync(
-        `opencode run --format json --title "PR Review #${id}" "$(cat "${tmpFile}")"`,
-        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], shell: '/bin/bash' }
+      stdout = execFileSync(
+        'opencode',
+        ['run', '--format', 'json', prompt],
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
       );
     } catch (execErr) {
       stderr = execErr.stderr || '';
@@ -26144,9 +26139,7 @@ function runReview(prompt, id, { log = console.log } = {}) {
 
     log(`OpenCode stdout (first 500 chars): ${stdout.slice(0, 500)}`);
     return parseReviewOutput(stdout, { log });
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
-  }
+  } finally {}
 }
 
 /**
