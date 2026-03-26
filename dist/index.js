@@ -26129,8 +26129,8 @@ function runReview(prompt, id, { log = console.log } = {}) {
     let stdout;
     try {
       stdout = execSync(
-        `cat "${tmpFile}" | opencode run --format json --title "PR Review #${id}"`,
-        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
+        `opencode run --format json --title "PR Review #${id}" "$(cat "${tmpFile}")"`,
+        { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], shell: '/bin/bash' }
       );
     } catch (execErr) {
       stderr = execErr.stderr || '';
