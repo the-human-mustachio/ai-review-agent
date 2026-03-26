@@ -28,9 +28,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked
+          git pull --rebase
+          git stash pop || true
           git add -f dist/index.js dist/licenses.txt
           git diff --staged --quiet && echo "No dist changes" || git commit -m "chore: rebuild dist"
-          git pull --rebase
           git push
 
       - name: Release
