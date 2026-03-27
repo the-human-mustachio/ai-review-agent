@@ -33,7 +33,8 @@
   ],
   "dependencies": {
     "@octokit/rest": "^21.1.1",
-    "@opencode-ai/sdk": "^1.3.3"
+    "@opencode-ai/sdk": "^1.3.3",
+    "opencode-ai": "^1.3.2"
   },
   "devDependencies": {
     "@types/bun": "latest",
