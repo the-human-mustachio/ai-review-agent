@@ -27,10 +27,7 @@ const DEFAULT_EXCLUDES = [
   '**/*.snap',
 ];
 
-const DEFAULT_OPENCODE_VERSION = '1.3.2';
-
 const AGENT_FILES = ['orchestrator.md', 'security.md', 'architecture.md', 'testing.md', 'performance.md'];
-const TOOL_FILES = ['submit-review.ts', 'submit-summary.ts'];
 
 /**
  * Run the full review pipeline. Platform-agnostic.
@@ -46,7 +43,6 @@ const TOOL_FILES = ['submit-review.ts', 'submit-summary.ts'];
  * @param {string} [opts.rulesPath] - Path to rules file or directory
  * @param {string} [opts.excludePatterns] - Comma-separated exclude globs
  * @param {number} [opts.maxDiffSize=100000]
- * @param {string} [opts.opencodeVersion]
  * @param {string} [opts.opencodeConfig] - Path to OpenCode config
  * @param {string} [opts.apiKey] - API key to set in env
  * @param {function} [opts.log] - Logging function
@@ -65,7 +61,6 @@ async function runFullReview(opts) {
     rulesPath,
     excludePatterns = '',
     maxDiffSize = 100000,
-    opencodeVersion = DEFAULT_OPENCODE_VERSION,
     opencodeConfig,
     apiKey,
     log = console.log,
@@ -105,48 +100,53 @@ async function runFullReview(opts) {
   const fileDiffs = splitDiffByFile(fullDiff);
   const context = gatherHunkContext(fileDiffs);
 
-  // Install OpenCode
-  log(`Installing OpenCode v${opencodeVersion}...`);
-  exec(`npm install -g opencode-ai@${opencodeVersion}`);
-
   // Sanitize PR metadata
   const safePrTitle = sanitize(prTitle);
   const safePrAuthor = sanitize(prAuthor);
   const safePrBody = sanitize(prBody);
 
-  // Provision opencode files (agents, tools, config)
+  // Provision opencode files (agents, config) before starting SDK server
   provisionOpenCodeFiles(log, mode);
 
-  // Generate PR summary
-  let prSummary = '';
-  if (shouldGenerateSummary) {
-    prSummary = generateSummary({ fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log });
+  // Start OpenCode SDK server
+  log('Starting OpenCode SDK...');
+  const { createOpencode } = await import('@opencode-ai/sdk');
+  const { client, server } = await createOpencode({ timeout: 10000, port: 0 });
+
+  try {
+    // Generate PR summary
+    let prSummary = '';
+    if (shouldGenerateSummary) {
+      prSummary = await generateSummary({ client, fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log });
+    }
+
+    const shared = { client, fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
+
+    let review;
+    if (mode === 'agentic') {
+      log('Running in agentic mode (multi-agent review)...');
+      review = await runAgenticReview({ ...shared, promptPath });
+    } else {
+      log(`Running in quick mode (single-pass review)...`);
+      review = await runQuickReview({ ...shared, promptPath, maxDiffSize });
+    }
+
+    review.prSummary = prSummary;
+    return review;
+  } finally {
+    server.close();
   }
-
-  const shared = { fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
-
-  let review;
-  if (mode === 'agentic') {
-    log('Running in agentic mode (multi-agent review)...');
-    review = runAgenticReview({ ...shared, promptPath });
-  } else {
-    log(`Running in quick mode (single-pass review)...`);
-    review = runQuickReview({ ...shared, promptPath, maxDiffSize });
-  }
-
-  review.prSummary = prSummary;
-  return review;
 }
 
 // ─── Quick Mode ──────────────────────────────────────────────────────────────
 
-function runQuickReview({ fileDiffs, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, maxDiffSize, log }) {
+async function runQuickReview({ client, fileDiffs, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, maxDiffSize, log }) {
   const chunks = buildChunks(fileDiffs, maxDiffSize);
   log(`Split into ${chunks.length} chunk(s) for review.`);
 
   const template = loadPrompt(promptPath);
 
-  const chunkResults = chunks.map((chunk, i) => {
+  const chunkResults = await Promise.all(chunks.map(async (chunk, i) => {
     const chunkLabel = chunks.length > 1 ? ` (chunk ${i + 1}/${chunks.length})` : '';
     log(`Running AI review${chunkLabel}...`);
 
@@ -167,15 +167,15 @@ function runQuickReview({ fileDiffs, context, rules, safePrTitle, safePrAuthor, 
       DIFF: chunk.diff,
     });
 
-    return runReview(prompt, `${prNumber}-${i}`, { log });
-  });
+    return runReview(client, prompt, `${prNumber}-${i}`, { log });
+  }));
 
   return mergeResults(chunkResults);
 }
 
 // ─── Agentic Mode ────────────────────────────────────────────────────────────
 
-function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }) {
+async function runAgenticReview({ client, fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }) {
 
   const agenticTemplatePath = promptPath || path.join(__dirname, '..', '..', 'prompts', 'agentic-kickoff.txt');
   const template = loadPrompt(agenticTemplatePath);
@@ -201,7 +201,7 @@ function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, sa
   });
 
   log('Running orchestrator agent...');
-  const review = runAgenticOpencode(prompt, prNumber, { log });
+  const review = await runAgenticOpencode(client, prompt, prNumber, { log });
 
   return {
     approve: review.approve,
@@ -213,7 +213,7 @@ function runAgenticReview({ fileDiffs, fullDiff, context, rules, safePrTitle, sa
 
 // ─── PR Summary ──────────────────────────────────────────────────────────────
 
-function generateSummary({ fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log }) {
+async function generateSummary({ client, fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log }) {
   log('Generating PR summary...');
   const summaryTemplatePath = path.join(__dirname, '..', '..', 'prompts', 'summary.txt');
   const template = loadPrompt(summaryTemplatePath);
@@ -227,7 +227,7 @@ function generateSummary({ fileDiffs, fullDiff, safePrTitle, safePrAuthor, safeP
     DIFF: fullDiff,
   });
 
-  return runSummary(prompt, `summary-${prNumber}`, { log });
+  return runSummary(client, prompt, `summary-${prNumber}`, { log });
 }
 
 function buildFileList(fileDiffs) {
@@ -279,23 +279,6 @@ function provisionOpenCodeFiles(log, mode) {
     }
   }
 
-  // Provision custom tool files
-  const targetToolDir = path.join(targetOpencode, 'tools');
-  const sourceToolDir = path.join(packageDir, '.opencode', 'tools');
-  if (!fs.existsSync(path.join(targetToolDir, 'submit-review.ts'))) {
-    log('Provisioning custom tool files...');
-    fs.mkdirSync(targetToolDir, { recursive: true });
-
-    for (const file of TOOL_FILES) {
-      const target = path.join(targetToolDir, file);
-      if (!fs.existsSync(target)) {
-        const source = path.join(sourceToolDir, file);
-        if (fs.existsSync(source)) {
-          fs.copyFileSync(source, target);
-        }
-      }
-    }
-  }
 }
 
 // ─── Result Merging ──────────────────────────────────────────────────────────

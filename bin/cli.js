@@ -65,7 +65,6 @@ async function main() {
     rulesPath: args.rules || undefined,
     excludePatterns: args.exclude || '',
     maxDiffSize: parseInt(args['max-diff-size'] || '100000', 10),
-    opencodeVersion: args['opencode-version'] || undefined,
     opencodeConfig: args['opencode-config'] || undefined,
     apiKey: args['api-key'] || undefined,
     log,
@@ -148,7 +147,6 @@ REVIEW OPTIONS:
   --exclude <patterns>    Comma-separated glob patterns to exclude
   --max-diff-size <n>     Max diff size in chars (default: 100000)
   --severity-threshold <s> Fail threshold: blocking, warning, info (default: blocking)
-  --opencode-version <v>  Pinned opencode-ai version
   --opencode-config <path> Path to OpenCode config file
   --api-key <key>         API key for AI provider
   --post-review <bool>    Post approve/request-changes review (default: true)

@@ -38,7 +38,7 @@ When spawning each sub-agent via the `task` tool, include in the prompt:
 
 ## Output
 
-After collecting all sub-agent findings, you MUST use the `submit-review` tool to submit the final review. Do NOT output JSON as text.
+After collecting all sub-agent findings, respond with the final merged review in the structured JSON format provided.
 
 Rules:
 - approve=true ONLY if there are NO blocking issues across all sub-agents

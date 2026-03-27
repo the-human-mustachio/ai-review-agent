@@ -14,22 +14,4 @@ Files changed:
 Full diff:
 {{DIFF}}
 
-Analyze this PR. Based on the files changed and the nature of the modifications, use the `task` tool to spawn the appropriate specialist reviewers (security, architecture, testing, performance) in parallel. Pass each sub-agent the full diff, context, and rules above along with guidance on which files are most relevant to their domain. Then merge their findings into a single review JSON response.
-
-Respond with ONLY valid JSON (no markdown, no code blocks, no extra text).
-
-Schema:
-{
-  "approve": boolean,
-  "summary": "1-3 sentence overview",
-  "issues": [
-    {
-      "severity": "blocking" | "warning" | "info",
-      "message": "concise description under 120 chars",
-      "file": "path/to/file.ts",
-      "line": 42,
-      "endLine": 45
-    }
-  ],
-  "recommendation": "brief next steps"
-}
+Analyze this PR. Based on the files changed and the nature of the modifications, use the `task` tool to spawn the appropriate specialist reviewers (security, architecture, testing, performance) in parallel. Pass each sub-agent the full diff, context, and rules above along with guidance on which files are most relevant to their domain. Then merge their findings into a single review and respond in the structured JSON format provided.
