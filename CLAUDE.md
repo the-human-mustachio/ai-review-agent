@@ -56,6 +56,8 @@ The codebase has four layers:
 
 ## Prompt Templates
 
-- `prompts/default.txt` — quick mode template. Placeholders: `PR_TITLE`, `PR_AUTHOR`, `PR_BODY`, `RULES`, `CONTEXT`, `DIFF`.
-- `prompts/agentic-kickoff.txt` — agentic mode template. Same placeholders plus `FILE_LIST` (changed files with line counts).
-- `prompts/summary.txt` — PR summary template. Placeholders: `PR_TITLE`, `PR_AUTHOR`, `PR_BODY`, `FILE_LIST`, `DIFF`.
+Prompt templates are defined inline in `src/core/prompts.ts` (bundled into the output). Users can override with `--prompt <path>` for custom templates.
+
+- `DEFAULT_PROMPT` — quick mode template. Placeholders: `PR_TITLE`, `PR_AUTHOR`, `PR_BODY`, `RULES`, `CONTEXT`, `DIFF`.
+- `AGENTIC_KICKOFF_PROMPT` — agentic mode template. Same placeholders plus `FILE_LIST` (changed files with line counts).
+- `SUMMARY_PROMPT` — PR summary template. Placeholders: `PR_TITLE`, `PR_AUTHOR`, `PR_BODY`, `FILE_LIST`, `DIFF`.

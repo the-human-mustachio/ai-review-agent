@@ -1,16 +1,10 @@
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'default.txt');
-
-export function loadPrompt(customPath?: string): string {
-  const promptPath = customPath || DEFAULT_PROMPT_PATH;
-  if (!fs.existsSync(promptPath)) {
-    throw new Error(`Prompt template not found: ${promptPath}`);
+export function loadPrompt(customPath: string): string {
+  if (!fs.existsSync(customPath)) {
+    throw new Error(`Prompt template not found: ${customPath}`);
   }
-  return fs.readFileSync(promptPath, 'utf-8');
+  return fs.readFileSync(customPath, 'utf-8');
 }
 
 export function renderPrompt(template: string, variables: Record<string, string>): string {

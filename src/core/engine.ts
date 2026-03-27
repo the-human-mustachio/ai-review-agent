@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createOpencode } from '@opencode-ai/sdk';
 import { loadPrompt, renderPrompt } from './prompt.js';
+import { DEFAULT_PROMPT, AGENTIC_KICKOFF_PROMPT, SUMMARY_PROMPT } from './prompts.js';
 import { runReview, runAgenticOpencode, runSummary } from './review.js';
 import type { Review, Issue, ReviewOptions, FileDiff, HunkContext, Chunk, InlineComment } from '../types.js';
 
@@ -147,7 +148,7 @@ async function runQuickReview({ client, fileDiffs, context, rules, safePrTitle, 
   const chunks = buildChunks(fileDiffs, maxDiffSize);
   log(`Split into ${chunks.length} chunk(s) for review.`);
 
-  const template = loadPrompt(promptPath);
+  const template = promptPath ? loadPrompt(promptPath) : DEFAULT_PROMPT;
 
   const chunkResults = await Promise.all(chunks.map(async (chunk, i) => {
     const chunkLabel = chunks.length > 1 ? ` (chunk ${i + 1}/${chunks.length})` : '';
@@ -179,8 +180,7 @@ async function runQuickReview({ client, fileDiffs, context, rules, safePrTitle, 
 // ─── Agentic Mode ────────────────────────────────────────────────────────────
 
 async function runAgenticReview({ client, fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }: ReviewParams): Promise<Review> {
-  const agenticTemplatePath = promptPath || path.join(__dirname, '..', '..', 'prompts', 'agentic-kickoff.txt');
-  const template = loadPrompt(agenticTemplatePath);
+  const template = promptPath ? loadPrompt(promptPath) : AGENTIC_KICKOFF_PROMPT;
 
   const fileList = buildFileList(fileDiffs);
 
@@ -229,8 +229,7 @@ interface SummaryParams {
 
 async function generateSummary({ client, fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log }: SummaryParams): Promise<string> {
   log('Generating PR summary...');
-  const summaryTemplatePath = path.join(__dirname, '..', '..', 'prompts', 'summary.txt');
-  const template = loadPrompt(summaryTemplatePath);
+  const template = SUMMARY_PROMPT;
   const fileList = buildFileList(fileDiffs);
 
   const prompt = renderPrompt(template, {
@@ -253,7 +252,13 @@ function buildFileList(fileDiffs: FileDiff[]): string {
 }
 
 function provisionOpenCodeFiles(log: LogFn, mode: string): void {
-  const packageDir = path.join(__dirname, '..', '..');
+  // In bundle: __dirname is <package>/dist/, so '..' reaches package root.
+  // In source: __dirname is <package>/src/core/, so '../..' reaches package root.
+  // Use a heuristic: check if .opencode exists at '..' first, then '../..'.
+  let packageDir = path.join(__dirname, '..');
+  if (!fs.existsSync(path.join(packageDir, '.opencode'))) {
+    packageDir = path.join(__dirname, '..', '..');
+  }
   const targetOpencode = path.join(process.cwd(), '.opencode');
   const targetAgentDir = path.join(targetOpencode, 'agent');
   const sourceAgentDir = path.join(packageDir, '.opencode', 'agent');
