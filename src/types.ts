@@ -36,6 +36,8 @@ export interface ReviewOptions {
   maxDiffSize?: number;
   opencodeConfig?: string;
   apiKey?: string;
+  provider?: string;
+  model?: string;
   log?: (...args: unknown[]) => void;
 }
 

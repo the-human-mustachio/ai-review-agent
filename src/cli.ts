@@ -67,6 +67,8 @@ async function main(): Promise<void> {
     maxDiffSize: parseInt(args['max-diff-size'] || '100000', 10),
     opencodeConfig: args['opencode-config'] || undefined,
     apiKey: args['api-key'] || undefined,
+    provider: args.provider || undefined,
+    model: args.model || undefined,
     log,
   });
 
@@ -147,6 +149,8 @@ REVIEW OPTIONS:
   --exclude <patterns>    Comma-separated glob patterns to exclude
   --max-diff-size <n>     Max diff size in chars (default: 100000)
   --severity-threshold <s> Fail threshold: blocking, warning, info (default: blocking)
+  --provider <name>       AI provider (e.g. amazon-bedrock, anthropic, openai)
+  --model <id>            Model ID (e.g. anthropic.claude-sonnet-4-20250514-v1:0)
   --opencode-config <path> Path to OpenCode config file
   --api-key <key>         API key for AI provider
   --post-review <bool>    Post approve/request-changes review (default: true)

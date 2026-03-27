@@ -52,8 +52,16 @@ export async function runFullReview(opts: ReviewOptions): Promise<Review> {
     maxDiffSize = 100000,
     opencodeConfig,
     apiKey,
+    provider,
+    model: modelId,
     log = console.log,
   } = opts;
+
+  // Build model string for OpenCode config (format: "provider/model")
+  const modelString = provider && modelId ? `${provider}/${modelId}` : undefined;
+  if (modelString) {
+    log(`Using model: ${modelString}`);
+  }
 
   // Set env vars
   if (apiKey) process.env.ANTHROPIC_API_KEY = apiKey;
@@ -99,7 +107,12 @@ export async function runFullReview(opts: ReviewOptions): Promise<Review> {
 
   // Start OpenCode SDK server
   log('Starting OpenCode SDK...');
-  const { client, server } = await createOpencode({ timeout: 10000, port: 0 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const opencodeOpts: any = { timeout: 10000, port: 0 };
+  if (modelString) {
+    opencodeOpts.config = { model: modelString };
+  }
+  const { client, server } = await createOpencode(opencodeOpts);
 
   try {
     // Generate PR summary

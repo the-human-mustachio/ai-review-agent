@@ -142,6 +142,8 @@ PR METADATA (auto-detected in CI):
 
 REVIEW OPTIONS:
   --mode <mode>             Review mode: quick (single-pass) or agentic (multi-agent). Default: quick
+  --provider <name>         AI provider (e.g. amazon-bedrock, anthropic, openai)
+  --model <id>              Model ID (e.g. anthropic.claude-sonnet-4-20250514-v1:0)
   --prompt <path>           Custom prompt template
   --rules <path>            Rules file or directory
   --exclude <patterns>      Comma-separated exclude globs
@@ -154,6 +156,55 @@ REVIEW OPTIONS:
 OUTPUT:
   --output-only             Print JSON to stdout, exit 0 (approved) or 1 (rejected)
   --help                    Show help
+```
+
+## Providers
+
+By default, the tool uses the OpenCode default provider (Anthropic via `ANTHROPIC_API_KEY`). Use `--provider` and `--model` to specify a different provider.
+
+### Anthropic (default)
+
+No flags needed — set `ANTHROPIC_API_KEY` in your environment.
+
+### AWS Bedrock
+
+Set AWS credentials and region in your environment, then specify the provider and model:
+
+```bash
+npx @_mustachio/ai-review-agent \
+  --provider amazon-bedrock \
+  --model anthropic.claude-sonnet-4-20250514-v1:0 \
+  --rules ./docs/standards/
+```
+
+**Required environment variables:**
+- `AWS_REGION` (e.g. `us-west-2`)
+- AWS credentials via one of: `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, `AWS_PROFILE`, or IAM role (automatic in EC2/ECS/Lambda)
+
+**Anthropic model IDs on Bedrock:**
+
+| Model | Bedrock Model ID |
+|-------|-----------------|
+| Claude Sonnet 4.6 | `anthropic.claude-sonnet-4-6` |
+| Claude Opus 4.6 | `anthropic.claude-opus-4-6-v1` |
+| Claude Sonnet 4.5 | `anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| Claude Opus 4.5 | `anthropic.claude-opus-4-5-20251101-v1:0` |
+| Claude Sonnet 4 | `anthropic.claude-sonnet-4-20250514-v1:0` |
+| Claude Opus 4.1 | `anthropic.claude-opus-4-1-20250805-v1:0` |
+| Claude Haiku 4.5 | `anthropic.claude-haiku-4-5-20251001-v1:0` |
+| Claude 3.5 Haiku | `anthropic.claude-3-5-haiku-20241022-v1:0` |
+| Claude 3 Haiku | `anthropic.claude-3-haiku-20240307-v1:0` |
+
+Cross-region variants are also available with `us.` or `eu.` prefixes (e.g. `us.anthropic.claude-sonnet-4-6`, `eu.anthropic.claude-opus-4-6-v1`).
+
+**GitHub Actions example with Bedrock:**
+
+```yaml
+- run: npx @_mustachio/ai-review-agent --provider amazon-bedrock --model anthropic.claude-sonnet-4-20250514-v1:0 --rules docs/standards/
+  env:
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    AWS_REGION: us-west-2
 ```
 
 ## Custom Rules
