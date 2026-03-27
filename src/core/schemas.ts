@@ -1,4 +1,4 @@
-const reviewSchema = {
+export const reviewSchema = {
   type: 'object',
   properties: {
     approve: {
@@ -47,9 +47,9 @@ const reviewSchema = {
     },
   },
   required: ['approve', 'summary', 'issues', 'recommendation'],
-};
+} as const;
 
-const summarySchema = {
+export const summarySchema = {
   type: 'object',
   properties: {
     overview: {
@@ -66,6 +66,4 @@ const summarySchema = {
     },
   },
   required: ['overview', 'changes', 'riskAreas'],
-};
-
-module.exports = { reviewSchema, summarySchema };
+} as const;

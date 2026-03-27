@@ -1,16 +1,23 @@
-const { reviewSchema, summarySchema } = require('./schemas');
+import { reviewSchema, summarySchema } from './schemas.js';
+import type { Review } from '../types.js';
 
-const DEFAULT_REVIEW = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type OpenCodeClient = any;
+type LogFn = (...args: unknown[]) => void;
+
+const DEFAULT_REVIEW: Review = {
   approve: false,
   summary: 'Failed to parse AI review output.',
   issues: [],
   recommendation: 'Review manually.',
 };
 
-/**
- * Run OpenCode in quick mode (no agent) and return the parsed review JSON.
- */
-async function runReview(client, prompt, id, { log = console.log } = {}) {
+export async function runReview(
+  client: OpenCodeClient,
+  prompt: string,
+  id: string | number,
+  { log = console.log }: { log?: LogFn } = {},
+): Promise<Review> {
   const result = await promptWithSchema(client, {
     prompt,
     schema: reviewSchema,
@@ -20,10 +27,12 @@ async function runReview(client, prompt, id, { log = console.log } = {}) {
   return result || DEFAULT_REVIEW;
 }
 
-/**
- * Run OpenCode with the orchestrator agent for agentic review mode.
- */
-async function runAgenticOpencode(client, prompt, id, { log = console.log } = {}) {
+export async function runAgenticOpencode(
+  client: OpenCodeClient,
+  prompt: string,
+  id: string | number,
+  { log = console.log }: { log?: LogFn } = {},
+): Promise<Review> {
   const result = await promptWithSchema(client, {
     prompt,
     agent: 'orchestrator',
@@ -34,10 +43,12 @@ async function runAgenticOpencode(client, prompt, id, { log = console.log } = {}
   return result || DEFAULT_REVIEW;
 }
 
-/**
- * Run OpenCode to generate a PR summary.
- */
-async function runSummary(client, prompt, id, { log = console.log } = {}) {
+export async function runSummary(
+  client: OpenCodeClient,
+  prompt: string,
+  id: string | number,
+  { log = console.log }: { log?: LogFn } = {},
+): Promise<string> {
   const result = await promptWithSchema(client, {
     prompt,
     schema: summarySchema,
@@ -50,12 +61,22 @@ async function runSummary(client, prompt, id, { log = console.log } = {}) {
 
 // ─── SDK Interaction ────────────────────────────────────────────────────────
 
-async function promptWithSchema(client, { prompt, agent, schema, log, label }) {
+interface PromptOptions {
+  prompt: string;
+  agent?: string;
+  schema: Record<string, unknown>;
+  log: LogFn;
+  label: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function promptWithSchema(client: OpenCodeClient, { prompt, agent, schema, log, label }: PromptOptions): Promise<any> {
   try {
     const session = await client.session.create({ body: { title: label } });
     const sessionId = session.data.id;
 
-    const body = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body: any = {
       parts: [{ type: 'text', text: prompt }],
       format: { type: 'json_schema', schema },
     };
@@ -75,10 +96,9 @@ async function promptWithSchema(client, { prompt, agent, schema, log, label }) {
 
     log(`Received structured output for ${label}.`);
     return output;
-  } catch (err) {
-    log(`OpenCode SDK error (${label}): ${err.message}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log(`OpenCode SDK error (${label}): ${message}`);
     return null;
   }
 }
-
-module.exports = { runReview, runAgenticOpencode, runSummary };

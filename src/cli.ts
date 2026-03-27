@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 
-const { runFullReview, shouldFailForThreshold, countBySeverity } = require('../src/core/engine');
-const githubPlatform = require('../src/platforms/github');
-const bitbucketPlatform = require('../src/platforms/bitbucket');
+import { runFullReview, shouldFailForThreshold, countBySeverity } from './core/engine.js';
+import * as githubPlatform from './platforms/github.js';
+import * as bitbucketPlatform from './platforms/bitbucket.js';
+import type { Platform } from './types.js';
 
-const PLATFORMS = {
+const PLATFORMS: Record<string, Platform> = {
   github: githubPlatform,
   bitbucket: bitbucketPlatform,
 };
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.help) {
@@ -42,7 +43,6 @@ async function main() {
     const token = args.token || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || process.env.BB_TOKEN || process.env.BITBUCKET_TOKEN;
     prMeta = await platform.getPrMetadata(token);
   } else {
-    // Manual mode — require CLI args
     prMeta = {
       prNumber: args['pr-number'] || '0',
       prTitle: args['pr-title'] || '',
@@ -59,7 +59,7 @@ async function main() {
     prAuthor: prMeta.prAuthor,
     prBody: prMeta.prBody,
     prNumber: prMeta.prNumber,
-    mode: args.mode || 'quick',
+    mode: (args.mode as 'quick' | 'agentic') || 'quick',
     summary: args.summary !== 'false',
     promptPath: args.prompt || undefined,
     rulesPath: args.rules || undefined,
@@ -83,7 +83,7 @@ async function main() {
     process.exit(1);
   }
 
-  const platform = PLATFORMS[platformName];
+  const platform = PLATFORMS[platformName!];
   await platform.postReview(review, {
     prNumber: prMeta.prNumber,
     token,
@@ -103,15 +103,15 @@ async function main() {
   log(`Review complete. Approved: ${review.approve}. Issues: ${review.issues.length} (${blockingCount} blocking).`);
 }
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): Record<string, string> {
+  const args: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg.startsWith('--')) {
       const key = arg.slice(2);
       const next = argv[i + 1];
       if (!next || next.startsWith('--')) {
-        args[key] = true;
+        args[key] = 'true';
       } else {
         args[key] = next;
         i++;
@@ -121,7 +121,7 @@ function parseArgs(argv) {
   return args;
 }
 
-function printUsage() {
+function printUsage(): void {
   console.log(`
 ai-review-agent - AI-powered code review for pull requests
 
@@ -157,7 +157,7 @@ OUTPUT:
 `);
 }
 
-main().catch((err) => {
+main().catch((err: Error) => {
   console.error(`Fatal: ${err.message}`);
   process.exit(1);
 });

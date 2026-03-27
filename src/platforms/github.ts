@@ -1,18 +1,18 @@
-const { formatComment, formatInlineIssuesAsList, buildInlineComments } = require('../core/engine');
+import fs from 'fs';
+import { Octokit } from '@octokit/rest';
+import { formatComment, formatInlineIssuesAsList, buildInlineComments } from '../core/engine.js';
+import type { PrMetadata, Review, PostReviewOptions } from '../types.js';
 
-/**
- * Detect GitHub environment and extract PR metadata.
- */
-function detect() {
+type LogFn = (...args: unknown[]) => void;
+
+export function detect(): boolean {
   return !!process.env.GITHUB_ACTIONS;
 }
 
-async function getPrMetadata() {
-  // In GitHub Actions, the event payload is in a file
+export async function getPrMetadata(): Promise<PrMetadata> {
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (!eventPath) throw new Error('GITHUB_EVENT_PATH not set');
 
-  const fs = require('fs');
   const event = JSON.parse(fs.readFileSync(eventPath, 'utf-8'));
   const pr = event.pull_request;
   if (!pr) throw new Error('No pull_request in event payload');
@@ -26,57 +26,56 @@ async function getPrMetadata() {
   };
 }
 
-/**
- * Post review results to GitHub PR.
- */
-async function postReview(review, { prNumber, token, postReview: shouldPost = true, log = console.log }) {
-  const { Octokit } = require('@octokit/rest');
+export async function postReview(
+  review: Review,
+  { prNumber, token, postReview: shouldPost = true, log = console.log }: PostReviewOptions,
+): Promise<void> {
   const octokit = new Octokit({ auth: token });
 
-  const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
 
   // Dismiss stale reviews
   log('Dismissing stale reviews...');
   await dismissStaleReviews(octokit, owner, repo, prNumber, log);
 
   if (!shouldPost) {
-    // Just post a comment
     await octokit.issues.createComment({
       owner,
       repo,
-      issue_number: prNumber,
+      issue_number: Number(prNumber),
       body: formatComment(review),
     });
     return;
   }
 
   // Get head SHA
-  const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: prNumber });
+  const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: Number(prNumber) });
   const commitId = pr.head.sha;
 
   const inlineComments = buildInlineComments(review.issues);
   const summaryBody = formatComment(review);
-  const event = review.approve ? 'APPROVE' : 'REQUEST_CHANGES';
+  const event = review.approve ? 'APPROVE' as const : 'REQUEST_CHANGES' as const;
 
   try {
     await octokit.pulls.createReview({
       owner,
       repo,
-      pull_number: prNumber,
+      pull_number: Number(prNumber),
       commit_id: commitId,
       event,
       body: summaryBody,
       comments: inlineComments,
     });
     log(`Posted review with ${inlineComments.length} inline comment(s).`);
-  } catch (error) {
-    log(`Warning: Failed to post inline comments: ${error.message}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`Warning: Failed to post inline comments: ${message}`);
     log('Falling back to summary-only review...');
 
     await octokit.pulls.createReview({
       owner,
       repo,
-      pull_number: prNumber,
+      pull_number: Number(prNumber),
       commit_id: commitId,
       event,
       body: summaryBody + formatInlineIssuesAsList(review.issues),
@@ -84,18 +83,24 @@ async function postReview(review, { prNumber, token, postReview: shouldPost = tr
   }
 }
 
-async function dismissStaleReviews(octokit, owner, repo, prNumber, log) {
+async function dismissStaleReviews(
+  octokit: InstanceType<typeof Octokit>,
+  owner: string,
+  repo: string,
+  prNumber: string | number,
+  log: LogFn,
+): Promise<void> {
   try {
     const { data: reviews } = await octokit.pulls.listReviews({
       owner,
       repo,
-      pull_number: prNumber,
+      pull_number: Number(prNumber),
     });
 
     const botReviews = reviews.filter(
       (r) =>
         r.user?.login === 'github-actions[bot]' &&
-        (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED')
+        (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED'),
     );
 
     for (const review of botReviews) {
@@ -103,18 +108,18 @@ async function dismissStaleReviews(octokit, owner, repo, prNumber, log) {
         await octokit.pulls.dismissReview({
           owner,
           repo,
-          pull_number: prNumber,
+          pull_number: Number(prNumber),
           review_id: review.id,
           message: 'Superseded by new AI review.',
         });
         log(`Dismissed stale review #${review.id}.`);
-      } catch (err) {
-        log(`Warning: Could not dismiss review #${review.id}: ${err.message}`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        log(`Warning: Could not dismiss review #${review.id}: ${message}`);
       }
     }
-  } catch (err) {
-    log(`Warning: Could not list reviews for dismissal: ${err.message}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log(`Warning: Could not list reviews for dismissal: ${message}`);
   }
 }
-
-module.exports = { detect, getPrMetadata, postReview };

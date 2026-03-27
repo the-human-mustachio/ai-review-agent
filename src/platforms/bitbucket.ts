@@ -1,20 +1,15 @@
-const { formatComment, buildInlineComments } = require('../core/engine');
+import { formatComment, buildInlineComments } from '../core/engine.js';
+import type { PrMetadata, Review, PostReviewOptions } from '../types.js';
+
+type LogFn = (...args: unknown[]) => void;
 
 const BB_API = 'https://api.bitbucket.org/2.0';
 
-/**
- * Detect Bitbucket Pipelines environment.
- */
-function detect() {
+export function detect(): boolean {
   return !!process.env.BITBUCKET_BUILD_NUMBER;
 }
 
-/**
- * Get PR metadata. Bitbucket Pipelines only provides PR ID, branch, commit,
- * workspace, and repo slug as env vars. Title/author/description must be
- * fetched from the API.
- */
-async function getPrMetadata(token) {
+export async function getPrMetadata(token?: string): Promise<PrMetadata> {
   const prId = process.env.BITBUCKET_PR_ID;
   if (!prId) throw new Error('BITBUCKET_PR_ID not set. Is this running on a PR pipeline?');
 
@@ -25,10 +20,9 @@ async function getPrMetadata(token) {
     throw new Error('BITBUCKET_WORKSPACE and BITBUCKET_REPO_SLUG must be set.');
   }
 
-  // Fetch PR details from API since env vars don't include title/author/description
   const prData = await bbFetch(
     `${BB_API}/repositories/${workspace}/${repoSlug}/pullrequests/${prId}`,
-    { headers: authHeaders(token) }
+    { headers: authHeaders(token) },
   );
   const pr = JSON.parse(prData);
 
@@ -38,23 +32,13 @@ async function getPrMetadata(token) {
     prAuthor: pr.author?.display_name || pr.author?.nickname || '',
     prBody: pr.description || '',
     baseBranch: pr.destination?.branch?.name || 'main',
-    commitHash: process.env.BITBUCKET_COMMIT,
-    workspace,
-    repoSlug,
   };
 }
 
-/**
- * Post review results to Bitbucket PR.
- *
- * Bitbucket doesn't have GitHub's "request changes" concept.
- * Instead we use:
- * - Inline comments for specific issues
- * - Summary comment for the overview
- * - Build status (SUCCESSFUL/FAILED) to block/allow merge
- * - Approve/unapprove as a secondary signal
- */
-async function postReview(review, { prNumber, token, postReview: shouldPost = true, log = console.log }) {
+export async function postReview(
+  review: Review,
+  { prNumber, token, postReview: shouldPost = true, log = console.log }: PostReviewOptions,
+): Promise<void> {
   const workspace = process.env.BITBUCKET_WORKSPACE;
   const repoSlug = process.env.BITBUCKET_REPO_SLUG;
   const commitHash = process.env.BITBUCKET_COMMIT;
@@ -89,8 +73,9 @@ async function postReview(review, { prNumber, token, postReview: shouldPost = tr
         }),
       });
       inlinePosted++;
-    } catch (err) {
-      log(`Warning: Failed to post inline comment on ${comment.path}:${comment.line}: ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Warning: Failed to post inline comment on ${comment.path}:${comment.line}: ${message}`);
     }
   }
 
@@ -108,7 +93,7 @@ async function postReview(review, { prNumber, token, postReview: shouldPost = tr
 
   if (!shouldPost) return;
 
-  // Set build status to block/allow merge (works with branch restrictions on Premium)
+  // Set build status
   if (commitHash) {
     const statusUrl = `${BB_API}/repositories/${workspace}/${repoSlug}/commit/${commitHash}/statuses/build`;
     try {
@@ -126,28 +111,24 @@ async function postReview(review, { prNumber, token, postReview: shouldPost = tr
         }),
       });
       log(`Set build status: ${review.approve ? 'SUCCESSFUL' : 'FAILED'}`);
-    } catch (err) {
-      log(`Warning: Could not set build status: ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Warning: Could not set build status: ${message}`);
     }
   }
 
   // Approve/unapprove as secondary signal
   if (review.approve) {
     try {
-      await bbFetch(`${baseUrl}/approve`, {
-        method: 'POST',
-        headers,
-      });
+      await bbFetch(`${baseUrl}/approve`, { method: 'POST', headers });
       log('Approved PR.');
-    } catch (err) {
-      log(`Warning: Could not approve PR: ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Warning: Could not approve PR: ${message}`);
     }
   } else {
     try {
-      await bbFetch(`${baseUrl}/approve`, {
-        method: 'DELETE',
-        headers,
-      });
+      await bbFetch(`${baseUrl}/approve`, { method: 'DELETE', headers });
     } catch {
       // May not have been approved previously — that's fine
     }
@@ -155,11 +136,7 @@ async function postReview(review, { prNumber, token, postReview: shouldPost = tr
   }
 }
 
-/**
- * Delete previous AI review comments to prevent accumulation.
- * Identifies bot comments by checking for our signature text.
- */
-async function deleteStaleComments(baseUrl, headers, log) {
+async function deleteStaleComments(baseUrl: string, headers: Record<string, string>, log: LogFn): Promise<void> {
   try {
     const response = await bbFetch(`${baseUrl}/comments?pagelen=100`, { headers });
     const data = JSON.parse(response);
@@ -167,26 +144,25 @@ async function deleteStaleComments(baseUrl, headers, log) {
     for (const comment of (data.values || [])) {
       if (comment.content?.raw?.includes('Generated by AI Code Review')) {
         try {
-          await bbFetch(`${baseUrl}/comments/${comment.id}`, {
-            method: 'DELETE',
-            headers,
-          });
+          await bbFetch(`${baseUrl}/comments/${comment.id}`, { method: 'DELETE', headers });
           log(`Deleted stale comment #${comment.id}.`);
-        } catch (err) {
-          log(`Warning: Could not delete comment #${comment.id}: ${err.message}`);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          log(`Warning: Could not delete comment #${comment.id}: ${message}`);
         }
       }
     }
-  } catch (err) {
-    log(`Warning: Could not list comments for cleanup: ${err.message}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log(`Warning: Could not list comments for cleanup: ${message}`);
   }
 }
 
-function authHeaders(token) {
-  return { 'Authorization': `Bearer ${token}` };
+function authHeaders(token?: string): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function bbFetch(url, opts = {}) {
+async function bbFetch(url: string, opts: RequestInit = {}): Promise<string> {
   const response = await fetch(url, opts);
   if (!response.ok) {
     const body = await response.text();
@@ -194,5 +170,3 @@ async function bbFetch(url, opts = {}) {
   }
   return response.text();
 }
-
-module.exports = { detect, getPrMetadata, postReview };

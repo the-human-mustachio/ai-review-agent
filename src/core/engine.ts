@@ -1,8 +1,15 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const { loadPrompt, renderPrompt } = require('./prompt');
-const { runReview, runAgenticOpencode, runSummary } = require('./review');
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import { createOpencode } from '@opencode-ai/sdk';
+import { loadPrompt, renderPrompt } from './prompt.js';
+import { runReview, runAgenticOpencode, runSummary } from './review.js';
+import type { Review, Issue, ReviewOptions, FileDiff, HunkContext, Chunk, InlineComment } from '../types.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+type LogFn = (...args: unknown[]) => void;
 
 const CONTEXT_LINES_AROUND_HUNK = 20;
 const BINARY_EXTENSIONS = new Set([
@@ -29,26 +36,7 @@ const DEFAULT_EXCLUDES = [
 
 const AGENT_FILES = ['orchestrator.md', 'security.md', 'architecture.md', 'testing.md', 'performance.md'];
 
-/**
- * Run the full review pipeline. Platform-agnostic.
- *
- * @param {object} opts
- * @param {string} opts.baseBranch - Base branch to diff against
- * @param {string} opts.prTitle
- * @param {string} opts.prAuthor
- * @param {string} opts.prBody
- * @param {number|string} opts.prNumber
- * @param {string} [opts.mode='quick'] - Review mode: 'quick' or 'agentic'
- * @param {string} [opts.promptPath] - Custom prompt template path
- * @param {string} [opts.rulesPath] - Path to rules file or directory
- * @param {string} [opts.excludePatterns] - Comma-separated exclude globs
- * @param {number} [opts.maxDiffSize=100000]
- * @param {string} [opts.opencodeConfig] - Path to OpenCode config
- * @param {string} [opts.apiKey] - API key to set in env
- * @param {function} [opts.log] - Logging function
- * @returns {Promise<object>} Review result: { approve, summary, issues, recommendation }
- */
-async function runFullReview(opts) {
+export async function runFullReview(opts: ReviewOptions): Promise<Review> {
   const {
     baseBranch,
     prTitle,
@@ -110,7 +98,6 @@ async function runFullReview(opts) {
 
   // Start OpenCode SDK server
   log('Starting OpenCode SDK...');
-  const { createOpencode } = await import('@opencode-ai/sdk');
   const { client, server } = await createOpencode({ timeout: 10000, port: 0 });
 
   try {
@@ -122,12 +109,12 @@ async function runFullReview(opts) {
 
     const shared = { client, fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, log };
 
-    let review;
+    let review: Review;
     if (mode === 'agentic') {
       log('Running in agentic mode (multi-agent review)...');
       review = await runAgenticReview({ ...shared, promptPath });
     } else {
-      log(`Running in quick mode (single-pass review)...`);
+      log('Running in quick mode (single-pass review)...');
       review = await runQuickReview({ ...shared, promptPath, maxDiffSize });
     }
 
@@ -140,7 +127,23 @@ async function runFullReview(opts) {
 
 // ─── Quick Mode ──────────────────────────────────────────────────────────────
 
-async function runQuickReview({ client, fileDiffs, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, maxDiffSize, log }) {
+interface ReviewParams {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any;
+  fileDiffs: FileDiff[];
+  fullDiff: string;
+  context: HunkContext[];
+  rules: string;
+  safePrTitle: string;
+  safePrAuthor: string;
+  safePrBody: string;
+  prNumber: string | number;
+  promptPath?: string;
+  maxDiffSize?: number;
+  log: LogFn;
+}
+
+async function runQuickReview({ client, fileDiffs, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, maxDiffSize = 100000, log }: ReviewParams): Promise<Review> {
   const chunks = buildChunks(fileDiffs, maxDiffSize);
   log(`Split into ${chunks.length} chunk(s) for review.`);
 
@@ -175,8 +178,7 @@ async function runQuickReview({ client, fileDiffs, context, rules, safePrTitle, 
 
 // ─── Agentic Mode ────────────────────────────────────────────────────────────
 
-async function runAgenticReview({ client, fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }) {
-
+async function runAgenticReview({ client, fileDiffs, fullDiff, context, rules, safePrTitle, safePrAuthor, safePrBody, prNumber, promptPath, log }: ReviewParams): Promise<Review> {
   const agenticTemplatePath = promptPath || path.join(__dirname, '..', '..', 'prompts', 'agentic-kickoff.txt');
   const template = loadPrompt(agenticTemplatePath);
 
@@ -213,7 +215,19 @@ async function runAgenticReview({ client, fileDiffs, fullDiff, context, rules, s
 
 // ─── PR Summary ──────────────────────────────────────────────────────────────
 
-async function generateSummary({ client, fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log }) {
+interface SummaryParams {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any;
+  fileDiffs: FileDiff[];
+  fullDiff: string;
+  safePrTitle: string;
+  safePrAuthor: string;
+  safePrBody: string;
+  prNumber: string | number;
+  log: LogFn;
+}
+
+async function generateSummary({ client, fileDiffs, fullDiff, safePrTitle, safePrAuthor, safePrBody, prNumber, log }: SummaryParams): Promise<string> {
   log('Generating PR summary...');
   const summaryTemplatePath = path.join(__dirname, '..', '..', 'prompts', 'summary.txt');
   const template = loadPrompt(summaryTemplatePath);
@@ -230,7 +244,7 @@ async function generateSummary({ client, fileDiffs, fullDiff, safePrTitle, safeP
   return runSummary(client, prompt, `summary-${prNumber}`, { log });
 }
 
-function buildFileList(fileDiffs) {
+function buildFileList(fileDiffs: FileDiff[]): string {
   return fileDiffs.map(({ file, diff }) => {
     const added = (diff.match(/^\+[^+]/gm) || []).length;
     const removed = (diff.match(/^-[^-]/gm) || []).length;
@@ -238,7 +252,7 @@ function buildFileList(fileDiffs) {
   }).join('\n');
 }
 
-function provisionOpenCodeFiles(log, mode) {
+function provisionOpenCodeFiles(log: LogFn, mode: string): void {
   const packageDir = path.join(__dirname, '..', '..');
   const targetOpencode = path.join(process.cwd(), '.opencode');
   const targetAgentDir = path.join(targetOpencode, 'agent');
@@ -278,16 +292,15 @@ function provisionOpenCodeFiles(log, mode) {
       fs.copyFileSync(sourceConfig, targetConfig);
     }
   }
-
 }
 
 // ─── Result Merging ──────────────────────────────────────────────────────────
 
-function mergeResults(chunkResults) {
+function mergeResults(chunkResults: Review[]): Review {
   let shouldApprove = true;
-  const allIssues = [];
-  const allSummaries = [];
-  const allRecommendations = [];
+  const allIssues: Issue[] = [];
+  const allSummaries: string[] = [];
+  const allRecommendations: string[] = [];
 
   for (const review of chunkResults) {
     if (review.issues) allIssues.push(...review.issues);
@@ -306,19 +319,19 @@ function mergeResults(chunkResults) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function exec(cmd) {
+function exec(cmd: string): string {
   return execSync(cmd, { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
 }
 
-function sanitize(text) {
+function sanitize(text: string): string {
   if (!text) return '';
   const cleaned = text.replace(/---END_USER_INPUT---/gi, '');
   return `---BEGIN_USER_INPUT---\n${cleaned}\n---END_USER_INPUT---`;
 }
 
-function deduplicateIssues(issues) {
-  const seen = new Set();
-  const unique = [];
+function deduplicateIssues(issues: Issue[]): Issue[] {
+  const seen = new Set<string>();
+  const unique: Issue[] = [];
   for (const issue of issues) {
     const key = issue.file && issue.line
       ? `${issue.file}:${issue.line}:${issue.severity}`
@@ -331,7 +344,7 @@ function deduplicateIssues(issues) {
   return unique;
 }
 
-function shouldFailForThreshold(review, threshold) {
+export function shouldFailForThreshold(review: Review, threshold: string): string | null {
   if (!review.approve && (!review.issues || review.issues.length === 0)) {
     return 'Review did not approve but found no issues — possible parse failure.';
   }
@@ -347,26 +360,26 @@ function shouldFailForThreshold(review, threshold) {
   return null;
 }
 
-function countBySeverity(issues, severity) {
+export function countBySeverity(issues: Issue[], severity: string): number {
   return (issues || []).filter((i) => i.severity === severity).length;
 }
 
 // ─── Hunk-Aware Context ─────────────────────────────────────────────────────
 
-function gatherHunkContext(fileDiffs) {
-  const context = [];
+function gatherHunkContext(fileDiffs: FileDiff[]): HunkContext[] {
+  const context: HunkContext[] = [];
   for (const { file, diff } of fileDiffs) {
     if (isBinaryFile(file)) continue;
     if (!fs.existsSync(file)) continue;
 
-    let lines;
+    let lines: string[];
     try {
       const content = fs.readFileSync(file, 'utf-8');
       if (content.includes('\0')) continue;
       lines = content.split('\n');
     } catch { continue; }
 
-    const hunkRanges = [];
+    const hunkRanges: { start: number; end: number }[] = [];
     const hunkRegex = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm;
     let match;
     while ((match = hunkRegex.exec(diff)) !== null) {
@@ -390,7 +403,7 @@ function gatherHunkContext(fileDiffs) {
   return context;
 }
 
-function mergeRanges(ranges) {
+function mergeRanges(ranges: { start: number; end: number }[]): { start: number; end: number }[] {
   if (ranges.length === 0) return [];
   const sorted = [...ranges].sort((a, b) => a.start - b.start);
   const merged = [sorted[0]];
@@ -405,14 +418,14 @@ function mergeRanges(ranges) {
   return merged;
 }
 
-function isBinaryFile(filePath) {
+function isBinaryFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return BINARY_EXTENSIONS.has(ext);
 }
 
 // ─── Diff & Filtering ───────────────────────────────────────────────────────
 
-function splitDiffByFile(fullDiff) {
+function splitDiffByFile(fullDiff: string): FileDiff[] {
   const parts = fullDiff.split(/(?=^diff --git )/m).filter(Boolean);
   return parts.map((diff) => {
     const match = diff.match(/^diff --git a\/(.+?) b\/(.+)/);
@@ -421,9 +434,9 @@ function splitDiffByFile(fullDiff) {
   });
 }
 
-function buildChunks(fileDiffs, maxSize) {
-  const chunks = [];
-  let current = { files: [], diffs: [], size: 0 };
+function buildChunks(fileDiffs: FileDiff[], maxSize: number): Chunk[] {
+  const chunks: Chunk[] = [];
+  let current = { files: [] as string[], diffs: [] as string[], size: 0 };
   for (const { file, diff } of fileDiffs) {
     if (current.size + diff.length > maxSize && current.diffs.length > 0) {
       chunks.push({ files: current.files, diff: current.diffs.join('\n') });
@@ -439,13 +452,13 @@ function buildChunks(fileDiffs, maxSize) {
   return chunks;
 }
 
-function filterFiles(files, extraPatterns) {
+function filterFiles(files: string[], extraPatterns: string): { included: string[]; excluded: string[] } {
   const patterns = [...DEFAULT_EXCLUDES];
   if (extraPatterns) {
     patterns.push(...extraPatterns.split(',').map((p) => p.trim()).filter(Boolean));
   }
-  const included = [];
-  const excluded = [];
+  const included: string[] = [];
+  const excluded: string[] = [];
   for (const file of files) {
     if (matchesAny(file, patterns)) {
       excluded.push(file);
@@ -456,7 +469,7 @@ function filterFiles(files, extraPatterns) {
   return { included, excluded };
 }
 
-function matchesAny(file, patterns) {
+function matchesAny(file: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
     if (pattern.startsWith('**/')) {
       const suffix = pattern.slice(3);
@@ -482,7 +495,7 @@ function matchesAny(file, patterns) {
 
 // ─── Rules Loading ──────────────────────────────────────────────────────────
 
-function loadRules(rulesPath, log = console.log) {
+function loadRules(rulesPath: string, log: LogFn = console.log): string {
   if (!fs.existsSync(rulesPath)) {
     log(`Warning: Rules path not found: ${rulesPath}`);
     return '';
@@ -491,7 +504,7 @@ function loadRules(rulesPath, log = console.log) {
   if (stat.isFile()) return fs.readFileSync(rulesPath, 'utf-8');
   if (stat.isDirectory()) {
     const files = fs.readdirSync(rulesPath).filter((f) => !f.startsWith('.')).sort();
-    const parts = [];
+    const parts: string[] = [];
     for (const file of files) {
       const filePath = path.join(rulesPath, file);
       if (fs.statSync(filePath).isFile()) {
@@ -505,9 +518,9 @@ function loadRules(rulesPath, log = console.log) {
 
 // ─── Markdown Formatting ────────────────────────────────────────────────────
 
-const SEVERITY_ICONS = { blocking: '🚫', warning: '⚠️', info: '💡' };
+export const SEVERITY_ICONS: Record<string, string> = { blocking: '🚫', warning: '⚠️', info: '💡' };
 
-function formatComment(review) {
+export function formatComment(review: Review): string {
   let body = '';
 
   if (review.prSummary) {
@@ -534,7 +547,7 @@ function formatComment(review) {
   return body;
 }
 
-function formatInlineIssuesAsList(issues) {
+export function formatInlineIssuesAsList(issues: Issue[]): string {
   const inlineIssues = (issues || []).filter((i) => i.file && i.line);
   if (inlineIssues.length === 0) return '';
   let list = '\n\n### Inline Issues\n\n';
@@ -546,12 +559,12 @@ function formatInlineIssuesAsList(issues) {
   return list;
 }
 
-function buildInlineComments(issues) {
-  const comments = [];
+export function buildInlineComments(issues: Issue[]): InlineComment[] {
+  const comments: InlineComment[] = [];
   for (const issue of (issues || [])) {
     if (issue.file && issue.line) {
       const icon = SEVERITY_ICONS[issue.severity] || '•';
-      const comment = {
+      const comment: InlineComment = {
         path: issue.file,
         line: issue.line,
         body: `${icon} **${issue.severity}**: ${issue.message}`,
@@ -565,13 +578,3 @@ function buildInlineComments(issues) {
   }
   return comments;
 }
-
-module.exports = {
-  runFullReview,
-  shouldFailForThreshold,
-  countBySeverity,
-  formatComment,
-  formatInlineIssuesAsList,
-  buildInlineComments,
-  SEVERITY_ICONS,
-};

@@ -1,6 +1,6 @@
 # @_mustachio/ai-review-agent
 
-AI-powered pull request code review agent. Works as a CLI tool, npm library, or GitHub Action. Supports GitHub and Bitbucket.
+AI-powered pull request code review agent. Works as a CLI tool or npm library. Supports GitHub and Bitbucket.
 
 ## Features
 
@@ -63,12 +63,7 @@ jobs:
         with:
           node-version: '24'
 
-      - uses: the-human-mustachio/ai-review-agent@v1
-        with:
-          mode: 'agentic'
-          severity-threshold: 'blocking'
-          rules: docs/standards/standards.md
-          opencode-config: ${{ github.workspace }}/.github/opencode.json
+      - run: npx @_mustachio/ai-review-agent --mode agentic --rules docs/standards/standards.md --severity-threshold blocking
 ```
 
 ### Bitbucket Pipelines
@@ -152,7 +147,6 @@ REVIEW OPTIONS:
   --exclude <patterns>      Comma-separated exclude globs
   --max-diff-size <n>       Max diff chars per chunk (default: 100000)
   --severity-threshold <s>  Fail threshold: blocking, warning, info
-  --opencode-version <v>    Pinned opencode-ai version (default: 1.3.2)
   --opencode-config <path>  OpenCode config file
   --api-key <key>           AI provider API key
   --post-review <bool>      Post approve/request-changes (default: true)
@@ -161,21 +155,6 @@ OUTPUT:
   --output-only             Print JSON to stdout, exit 0 (approved) or 1 (rejected)
   --help                    Show help
 ```
-
-## GitHub Action Inputs
-
-| Input | Description | Default |
-|-------|-------------|---------|
-| `mode` | Review mode: `quick` or `agentic` | `quick` |
-| `api-key` | AI provider API key (optional if set in env) | |
-| `severity-threshold` | Fail threshold: `blocking`, `warning`, `info` | `blocking` |
-| `prompt` | Path to custom prompt template | built-in |
-| `post-review` | Post approve/request-changes review | `true` |
-| `max-diff-size` | Max diff size per chunk (chars) | `100000` |
-| `exclude-patterns` | Comma-separated exclude globs | |
-| `opencode-config` | Path to OpenCode config file | |
-| `rules` | Path to rules file or directory | |
-| `opencode-version` | Pinned opencode-ai version | `1.3.2` |
 
 ## Custom Rules
 
@@ -237,8 +216,8 @@ Both review modes produce the same output format.
 
 ## Library Usage
 
-```js
-const { runFullReview } = require('@_mustachio/ai-review-agent');
+```ts
+import { runFullReview } from '@_mustachio/ai-review-agent';
 
 // Quick mode (default)
 const review = await runFullReview({

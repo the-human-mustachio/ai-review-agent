@@ -2,12 +2,15 @@
   "name": "@_mustachio/ai-review-agent",
   "version": "0.1.0",
   "description": "AI-powered PR code review agent — CLI and CI integration for GitHub and Bitbucket",
-  "main": "src/core/engine.js",
+  "type": "module",
+  "main": "dist/core/engine.js",
   "bin": {
-    "ai-review-agent": "bin/cli.js"
+    "ai-review-agent": "dist/cli.js"
   },
   "scripts": {
-    "dev": "node bin/cli.js"
+    "build": "bun build src/cli.ts --outdir dist --target node --splitting",
+    "dev": "bun run src/cli.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "ai",
@@ -24,8 +27,7 @@
     "url": "https://github.com/the-human-mustachio/ai-review-agent"
   },
   "files": [
-    "bin/",
-    "src/",
+    "dist/",
     "prompts/",
     ".opencode/"
   ],
@@ -34,6 +36,8 @@
     "@opencode-ai/sdk": "^1.3.3"
   },
   "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.0",
     "semantic-release": "^25.0.3"
   },
   "release": {
